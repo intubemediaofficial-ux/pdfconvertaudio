@@ -20,7 +20,7 @@ export default function PDFToPPT() {
       const arrayBuffer = await file.arrayBuffer();
 
       const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       const pptxgen = (await import("pptxgenjs")).default;

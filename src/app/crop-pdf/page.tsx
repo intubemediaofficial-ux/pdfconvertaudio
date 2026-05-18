@@ -15,18 +15,10 @@ export default function CropPDF() {
     try {
       const ab = await file.arrayBuffer();
       const pdf = await PDFDocument.load(ab);
-      const pages = pdf.getPages();
-
-      for (const page of pages) {
+      for (const page of pdf.getPages()) {
         const { width, height } = page.getSize();
-        page.setCropBox(
-          margins.left,
-          margins.bottom,
-          width - margins.left - margins.right,
-          height - margins.top - margins.bottom
-        );
+        page.setCropBox(margins.left, margins.bottom, width - margins.left - margins.right, height - margins.top - margins.bottom);
       }
-
       const bytes = await pdf.save();
       const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
@@ -43,27 +35,27 @@ export default function CropPDF() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Crop PDF</h1>
-        <p className="text-gray-600">Crop margins of PDF documents.</p>
+    <div className="tool-container">
+      <div className="text-center mb-10">
+        <h1 className="page-title mb-3">Crop PDF</h1>
+        <p className="page-desc">Crop margins of PDF documents.</p>
       </div>
 
       {!file ? (
         <FileUpload accept=".pdf" onFilesSelected={(f) => setFile(f[0])} label="Select PDF file" />
       ) : (
-        <div className="max-w-md mx-auto space-y-4">
-          <div className="p-4 bg-white rounded-lg border shadow-sm">
-            <p className="font-medium">📄 {file.name}</p>
+        <div className="max-w-lg mx-auto space-y-6">
+          <div className="file-card">
+            <p className="file-name">📄 {file.name}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             {(["top", "right", "bottom", "left"] as const).map((side) => (
               <div key={side}>
-                <label className="block text-sm font-medium text-gray-700 mb-1 capitalize">{side} (pt)</label>
+                <label className="setting-label capitalize">{side} (pt)</label>
                 <input type="number" value={margins[side]}
                   onChange={(e) => setMargins((prev) => ({ ...prev, [side]: parseInt(e.target.value) || 0 }))}
-                  className="w-full p-2 border rounded-md" min="0" />
+                  className="input-field" min="0" />
               </div>
             ))}
           </div>

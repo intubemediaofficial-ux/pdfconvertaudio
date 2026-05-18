@@ -58,13 +58,10 @@ export default function JPGToPDF() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">JPG to PDF</h1>
-        <p className="text-gray-600">
-          Convert JPG images to PDF in seconds. Easily adjust orientation and
-          margins.
-        </p>
+    <div className="tool-container">
+      <div className="text-center mb-10">
+        <h1 className="page-title mb-3">JPG to PDF</h1>
+        <p className="page-desc">Convert JPG images to PDF in seconds.</p>
       </div>
 
       {files.length === 0 ? (
@@ -77,26 +74,26 @@ export default function JPGToPDF() {
         />
       ) : (
         <div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-5 mb-8">
             {files.map((file, index) => (
-              <div key={`${file.name}-${index}`} className="relative border rounded-lg overflow-hidden">
+              <div key={`${file.name}-${index}`} className="relative border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm bg-white">
                 <img
                   src={URL.createObjectURL(file)}
                   alt={file.name}
-                  className="w-full h-32 object-cover"
+                  className="w-full h-36 object-cover"
                 />
                 <button
                   onClick={() => removeFile(index)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs"
+                  className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-8 h-8 text-sm font-bold shadow"
                 >
                   ✕
                 </button>
-                <p className="p-1 text-xs text-center truncate">{file.name}</p>
+                <p className="p-2 text-sm text-center truncate font-medium">{file.name}</p>
               </div>
             ))}
           </div>
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex gap-4 justify-center">
             <button
               onClick={() =>
                 document.querySelector<HTMLInputElement>("#add-more-img")?.click()

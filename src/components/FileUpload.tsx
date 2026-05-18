@@ -43,9 +43,9 @@ export default function FileUpload({
   );
 
   return (
-    <div className="flex flex-col items-center gap-4 py-16">
+    <div className="flex flex-col items-center gap-6 py-12">
       <div
-        className={`upload-zone rounded-2xl p-16 text-center cursor-pointer w-full max-w-xl ${
+        className={`upload-zone p-20 text-center cursor-pointer w-full max-w-2xl ${
           dragOver ? "drag-over" : ""
         }`}
         onDragOver={(e) => {
@@ -56,11 +56,13 @@ export default function FileUpload({
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
       >
-        <div className="text-5xl mb-4">📄</div>
-        <button type="button" className="btn-primary mb-3">
+        <div className="text-6xl mb-6">
+          {accept.includes("image") ? "🖼️" : accept.includes(".ppt") ? "📊" : accept.includes(".xls") || accept.includes(".csv") ? "📋" : accept.includes(".doc") ? "📝" : accept.includes(".htm") ? "🌐" : "📄"}
+        </div>
+        <button type="button" className="btn-primary mb-4">
           {label}
         </button>
-        <p className="text-gray-500 text-sm">{description}</p>
+        <p className="text-gray-400 text-lg mt-2">{description}</p>
         <input
           ref={inputRef}
           type="file"

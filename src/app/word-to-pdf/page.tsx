@@ -23,7 +23,9 @@ export default function WordToPDF() {
 
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ arrayBuffer });
-      const text = result.value;
+      const text = result.value
+        .replace(/\t/g, "    ")
+        .replace(/[^\n\r\x20-\x7E\xA0-\xFF]/g, "");
 
       const pdf = await PDFDocument.create();
       const font = await pdf.embedFont(StandardFonts.Helvetica);

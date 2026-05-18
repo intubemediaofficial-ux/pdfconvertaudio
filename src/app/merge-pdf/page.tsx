@@ -57,14 +57,11 @@ export default function MergePDF() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Merge PDF files
-        </h1>
-        <p className="text-gray-600">
-          Combine PDFs in the order you want with the easiest PDF merger
-          available.
+    <div className="tool-container">
+      <div className="text-center mb-10">
+        <h1 className="page-title mb-3">Merge PDF files</h1>
+        <p className="page-desc">
+          Combine PDFs in the order you want with the easiest PDF merger available.
         </p>
       </div>
 
@@ -77,25 +74,25 @@ export default function MergePDF() {
           description="or drop PDF files here"
         />
       ) : (
-        <div>
-          <div className="space-y-2 mb-6">
+        <div className="max-w-2xl mx-auto">
+          <div className="space-y-3 mb-8">
             {files.map((file, index) => (
               <div
                 key={`${file.name}-${index}`}
-                className="flex items-center gap-3 p-3 bg-white rounded-lg border shadow-sm"
+                className="flex items-center gap-4 p-4 bg-white rounded-2xl border-2 border-gray-100 shadow-sm"
               >
-                <span className="text-2xl">📄</span>
+                <span className="text-3xl">📄</span>
                 <div className="flex-1">
-                  <p className="font-medium text-sm">{file.name}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="font-semibold text-base text-gray-900">{file.name}</p>
+                  <p className="text-sm text-gray-400">
                     {(file.size / 1024).toFixed(1)} KB
                   </p>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-2">
                   {index > 0 && (
                     <button
                       onClick={() => moveFile(index, index - 1)}
-                      className="p-1 text-gray-500 hover:text-gray-700"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg"
                       title="Move up"
                     >
                       ↑
@@ -104,7 +101,7 @@ export default function MergePDF() {
                   {index < files.length - 1 && (
                     <button
                       onClick={() => moveFile(index, index + 1)}
-                      className="p-1 text-gray-500 hover:text-gray-700"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 text-lg"
                       title="Move down"
                     >
                       ↓
@@ -112,7 +109,7 @@ export default function MergePDF() {
                   )}
                   <button
                     onClick={() => removeFile(index)}
-                    className="p-1 text-red-500 hover:text-red-700"
+                    className="w-9 h-9 flex items-center justify-center rounded-lg bg-red-50 hover:bg-red-100 text-red-500 text-lg"
                     title="Remove"
                   >
                     ✕
@@ -122,7 +119,7 @@ export default function MergePDF() {
             ))}
           </div>
 
-          <div className="flex gap-3 justify-center">
+          <div className="flex gap-4 justify-center">
             <button
               onClick={() =>
                 document.querySelector<HTMLInputElement>("#add-more")?.click()

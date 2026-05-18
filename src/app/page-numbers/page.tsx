@@ -49,33 +49,35 @@ export default function PageNumbers() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Page Numbers</h1>
-        <p className="text-gray-600">Add page numbers into PDFs with ease.</p>
+    <div className="tool-container">
+      <div className="text-center mb-10">
+        <h1 className="page-title mb-3">Page Numbers</h1>
+        <p className="page-desc">Add page numbers into PDFs with ease.</p>
       </div>
 
       {!file ? (
         <FileUpload accept=".pdf" onFilesSelected={(f) => setFile(f[0])} label="Select PDF file" />
       ) : (
-        <div className="max-w-md mx-auto space-y-4">
-          <div className="p-4 bg-white rounded-lg border shadow-sm">
-            <p className="font-medium">📄 {file.name}</p>
+        <div className="max-w-lg mx-auto space-y-6">
+          <div className="file-card">
+            <p className="file-name">📄 {file.name}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Position</label>
-            <div className="grid grid-cols-2 gap-2">
+            <label className="setting-label">Position</label>
+            <div className="grid grid-cols-2 gap-3">
               {(["top-center", "top-right", "bottom-center", "bottom-right"] as const).map((pos) => (
                 <button key={pos} onClick={() => setPosition(pos)}
-                  className={`p-2 rounded text-xs border ${position === pos ? "bg-red-500 text-white border-red-500" : "bg-white text-gray-700"}`}>
-                  {pos.replace("-", " ")}
+                  className={`p-4 rounded-xl text-base font-semibold border-2 transition ${
+                    position === pos ? "bg-red-500 text-white border-red-500" : "bg-white text-gray-700 border-gray-200 hover:border-red-200"
+                  }`}>
+                  {pos.replace("-", " ").replace(/\b\w/g, l => l.toUpperCase())}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Font Size: {fontSize}</label>
-            <input type="range" min="8" max="24" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full" />
+            <label className="setting-label">Font Size: {fontSize}</label>
+            <input type="range" min="8" max="24" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full h-3 accent-red-500" />
           </div>
           <div className="text-center pt-4">
             <button onClick={addPageNumbers} disabled={processing} className="btn-primary disabled:opacity-50">

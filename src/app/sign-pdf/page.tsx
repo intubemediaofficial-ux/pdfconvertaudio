@@ -71,9 +71,7 @@ export default function SignPDF() {
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
     };
-    const onUp = () => {
-      drawingRef.current = false;
-    };
+    const onUp = () => { drawingRef.current = false; };
 
     canvas.onmousedown = onDown;
     canvas.onmousemove = onMove;
@@ -127,9 +125,8 @@ export default function SignPDF() {
       for (const sig of signatures) {
         const page = pages[sig.page];
         const { height: pageHeight } = page.getSize();
-        const imgEl = pageImages[sig.page];
         const tempImg = new Image();
-        tempImg.src = imgEl;
+        tempImg.src = pageImages[sig.page];
         await new Promise((r) => (tempImg.onload = r));
         const scaleX = page.getWidth() / tempImg.width;
         const scaleY = pageHeight / tempImg.height;
@@ -160,30 +157,30 @@ export default function SignPDF() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Sign PDF</h1>
-        <p className="text-gray-600">Sign your PDF documents electronically.</p>
+    <div className="tool-container" style={{ maxWidth: 1000 }}>
+      <div className="text-center mb-10">
+        <h1 className="page-title mb-3">Sign PDF</h1>
+        <p className="page-desc">Sign your PDF documents electronically.</p>
       </div>
 
       {!file ? (
         <FileUpload accept=".pdf" onFilesSelected={handleFileSelected} label="Select PDF file" />
       ) : !signatureData ? (
-        <div className="max-w-md mx-auto">
-          <h2 className="text-lg font-semibold mb-4 text-center">Create Your Signature</h2>
-          <div className="flex gap-3 justify-center mb-4">
+        <div className="max-w-lg mx-auto">
+          <h2 className="text-2xl font-bold mb-6 text-center">Create Your Signature</h2>
+          <div className="flex gap-4 justify-center mb-6">
             <button onClick={() => setSignMode("draw")}
-              className={`px-4 py-2 rounded text-sm ${signMode === "draw" ? "bg-red-500 text-white" : "bg-gray-100"}`}>
+              className={`px-6 py-3 rounded-xl text-base font-semibold border-2 transition ${signMode === "draw" ? "bg-red-500 text-white border-red-500" : "bg-white text-gray-700 border-gray-200"}`}>
               Draw
             </button>
             <button onClick={() => setSignMode("type")}
-              className={`px-4 py-2 rounded text-sm ${signMode === "type" ? "bg-red-500 text-white" : "bg-gray-100"}`}>
+              className={`px-6 py-3 rounded-xl text-base font-semibold border-2 transition ${signMode === "type" ? "bg-red-500 text-white border-red-500" : "bg-white text-gray-700 border-gray-200"}`}>
               Type
             </button>
           </div>
 
           {signMode === "draw" ? (
-            <div className="border-2 border-gray-300 rounded-lg mb-4">
+            <div className="border-3 border-gray-200 rounded-2xl mb-6 bg-white overflow-hidden">
               <canvas ref={canvasRef} width={400} height={150} className="w-full cursor-crosshair" />
             </div>
           ) : (
@@ -191,7 +188,7 @@ export default function SignPDF() {
               type="text"
               value={typedName}
               onChange={(e) => setTypedName(e.target.value)}
-              className="w-full p-3 border rounded-lg text-2xl italic font-serif mb-4"
+              className="w-full p-4 border-2 border-gray-200 rounded-2xl text-3xl italic font-serif mb-6"
               placeholder="Type your name"
             />
           )}
@@ -202,27 +199,27 @@ export default function SignPDF() {
         </div>
       ) : (
         <div>
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex gap-2 items-center">
-              <span className="text-sm text-gray-600">Your signature:</span>
-              <img src={signatureData} alt="Signature" className="h-10 border rounded p-1" />
-              <button onClick={() => setSignatureData(null)} className="text-sm text-red-500 hover:underline">Change</button>
+          <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+            <div className="flex gap-3 items-center">
+              <span className="text-base text-gray-500 font-medium">Your signature:</span>
+              <img src={signatureData} alt="Signature" className="h-12 border-2 rounded-xl p-1" />
+              <button onClick={() => setSignatureData(null)} className="text-base text-red-500 hover:underline font-semibold">Change</button>
             </div>
-            <p className="text-sm text-gray-500">Click on the PDF to place signature</p>
+            <p className="text-base text-gray-400">Click on the PDF to place signature</p>
           </div>
 
           {pageImages.length > 1 && (
-            <div className="flex gap-2 justify-center mb-4">
+            <div className="flex gap-2 justify-center mb-6">
               {pageImages.map((_, i) => (
                 <button key={i} onClick={() => setCurrentPage(i)}
-                  className={`px-3 py-1 rounded text-sm ${currentPage === i ? "bg-red-500 text-white" : "bg-gray-100"}`}>
+                  className={`px-5 py-2 rounded-xl text-base font-semibold border-2 transition ${currentPage === i ? "bg-red-500 text-white border-red-500" : "bg-white text-gray-700 border-gray-200"}`}>
                   Page {i + 1}
                 </button>
               ))}
             </div>
           )}
 
-          <div className="relative border rounded-lg overflow-hidden cursor-crosshair mb-6" onClick={placeSignature}>
+          <div className="relative border-2 rounded-2xl overflow-hidden cursor-crosshair mb-8" onClick={placeSignature}>
             <img src={pageImages[currentPage]} alt={`Page ${currentPage + 1}`} className="w-full" />
             {signatures
               .filter((s) => s.page === currentPage)

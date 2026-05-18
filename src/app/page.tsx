@@ -15,34 +15,36 @@ export default function Home() {
   return (
     <div>
       {/* Hero Section */}
-      <section className="bg-gradient-to-b from-gray-50 to-white py-16 text-center">
-        <div className="max-w-4xl mx-auto px-4">
-          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-            Every tool you need to work with PDFs in one place
+      <section className="bg-gradient-to-br from-red-50 via-white to-orange-50 py-20 text-center">
+        <div className="max-w-5xl mx-auto px-4">
+          <h1 className="text-5xl md:text-6xl font-extrabold text-gray-900 mb-6 leading-tight">
+            Every tool you need to<br />work with PDFs in one place
           </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-xl text-gray-500 max-w-3xl mx-auto leading-relaxed">
             Every tool you need to use PDFs, at your fingertips. All are 100%
             FREE and easy to use! Merge, split, compress, convert, rotate,
             unlock and watermark PDFs with just a few clicks.
           </p>
-          <p className="text-sm text-green-600 mt-3 font-medium">
-            All processing happens in your browser — your files never leave your
-            device
-          </p>
+          <div className="mt-6 inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-6 py-3">
+            <span className="text-green-600 text-lg">🔒</span>
+            <span className="text-green-700 font-semibold text-base">
+              All processing happens in your browser — your files never leave your device
+            </span>
+          </div>
         </div>
       </section>
 
       {/* Category Filter */}
-      <section id="all-tools" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-wrap gap-2 justify-center mb-8">
+      <section id="all-tools" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="flex flex-wrap gap-3 justify-center mb-10">
           {categories.map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition ${
+              className={`px-6 py-3 rounded-full text-base font-semibold transition-all ${
                 activeCategory === cat
-                  ? "bg-red-500 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  ? "bg-red-500 text-white shadow-lg shadow-red-200"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
               }`}
             >
               {cat}
@@ -51,16 +53,16 @@ export default function Home() {
         </div>
 
         {/* Tools Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
           {filteredTools.map((tool) => (
             <Link
               key={tool.id}
               href={tool.href}
-              className={`tool-card block p-5 rounded-xl border ${tool.color} hover:shadow-lg`}
+              className={`tool-card block p-6 border-2 bg-white ${tool.color} hover:shadow-xl`}
             >
-              <div className="text-3xl mb-3">{tool.icon}</div>
-              <h3 className="font-semibold text-gray-900 mb-1">{tool.name}</h3>
-              <p className="text-xs text-gray-600 leading-relaxed">
+              <div className="text-4xl mb-4">{tool.icon}</div>
+              <h3 className="font-bold text-gray-900 text-lg mb-2">{tool.name}</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
                 {tool.description}
               </p>
             </Link>
@@ -69,32 +71,32 @@ export default function Home() {
       </section>
 
       {/* Features Section */}
-      <section className="bg-gray-50 py-16">
+      <section className="bg-white py-20 border-t">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-12">
+          <h2 className="text-4xl font-extrabold text-center text-gray-900 mb-14">
             Why Choose PDF Tools?
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center p-6">
-              <div className="text-4xl mb-4">🔒</div>
-              <h3 className="font-semibold text-lg mb-2">100% Private & Secure</h3>
-              <p className="text-gray-600 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+            <div className="text-center p-8 rounded-2xl bg-blue-50">
+              <div className="text-5xl mb-5">🔒</div>
+              <h3 className="font-bold text-xl mb-3">100% Private & Secure</h3>
+              <p className="text-gray-600 text-base leading-relaxed">
                 All PDF processing happens directly in your browser. Your files
                 are never uploaded to any server.
               </p>
             </div>
-            <div className="text-center p-6">
-              <div className="text-4xl mb-4">⚡</div>
-              <h3 className="font-semibold text-lg mb-2">Lightning Fast</h3>
-              <p className="text-gray-600 text-sm">
+            <div className="text-center p-8 rounded-2xl bg-yellow-50">
+              <div className="text-5xl mb-5">⚡</div>
+              <h3 className="font-bold text-xl mb-3">Lightning Fast</h3>
+              <p className="text-gray-600 text-base leading-relaxed">
                 No waiting for uploads or server processing. Everything runs
                 instantly on your device.
               </p>
             </div>
-            <div className="text-center p-6">
-              <div className="text-4xl mb-4">🆓</div>
-              <h3 className="font-semibold text-lg mb-2">Completely Free</h3>
-              <p className="text-gray-600 text-sm">
+            <div className="text-center p-8 rounded-2xl bg-green-50">
+              <div className="text-5xl mb-5">🆓</div>
+              <h3 className="font-bold text-xl mb-3">Completely Free</h3>
+              <p className="text-gray-600 text-base leading-relaxed">
                 No sign-up required, no limits, no watermarks. Use all tools as
                 many times as you want.
               </p>

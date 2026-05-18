@@ -221,12 +221,10 @@ export default function EditPDF() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">PDF Editor</h1>
-        <p className="text-gray-600">
-          Add text, images, shapes or freehand annotations to a PDF document.
-        </p>
+    <div className="max-w-6xl mx-auto px-4 py-10">
+      <div className="text-center mb-10">
+        <h1 className="page-title mb-3">PDF Editor</h1>
+        <p className="page-desc">Add text, images, shapes or freehand annotations to a PDF document.</p>
       </div>
 
       {!file ? (
@@ -234,7 +232,7 @@ export default function EditPDF() {
       ) : (
         <div>
           {/* Toolbar */}
-          <div className="sticky top-16 z-40 bg-white border rounded-lg p-3 mb-4 flex flex-wrap items-center gap-3 shadow-sm">
+          <div className="sticky top-16 z-40 bg-white border-2 border-gray-100 rounded-2xl p-4 mb-6 flex flex-wrap items-center gap-3 shadow-md">
             <div className="flex gap-1">
               {(["text", "shape", "highlight", "whiteout"] as ActiveTool[]).map((tool) => (
                 <button key={tool} onClick={() => setActiveTool(tool)}

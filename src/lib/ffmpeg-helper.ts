@@ -64,10 +64,11 @@ export async function getFFmpeg() {
 
   const ffmpeg = createFFmpegProxy();
 
-  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+  // Use UMD core URLs (not ESM) because the worker uses importScripts() which needs real HTTP URLs
+  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
   await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    coreURL: `${baseURL}/ffmpeg-core.js`,
+    wasmURL: `${baseURL}/ffmpeg-core.wasm`,
   });
 
   ffmpegInstance = ffmpeg;

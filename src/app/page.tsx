@@ -18,12 +18,12 @@ export default function Home() {
       <section className="bg-gradient-to-br from-red-50 via-white to-orange-50 py-20 text-center">
         <div className="max-w-5xl mx-auto px-4">
           <h1 className="text-5xl md:text-6xl font-extrabold text-gray-900 mb-6 leading-tight">
-            Every tool you need to<br />work with PDFs in one place
+            Every tool you need to<br />work with PDFs & Audio
           </h1>
           <p className="text-xl text-gray-500 max-w-3xl mx-auto leading-relaxed">
-            Every tool you need to use PDFs, at your fingertips. All are 100%
-            FREE and easy to use! Merge, split, compress, convert, rotate,
-            unlock and watermark PDFs with just a few clicks.
+            PDF tools, audio converters — all 100% FREE and easy to use!
+            Merge, split, compress, convert PDFs. Extract audio from videos.
+            Everything runs in your browser.
           </p>
           <div className="mt-6 inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-6 py-3">
             <span className="text-green-600 text-lg">🔒</span>

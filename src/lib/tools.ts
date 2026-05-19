@@ -15,6 +15,7 @@ export const categories = [
   "Convert PDF",
   "Edit PDF",
   "PDF Security",
+  "Audio Converter",
 ] as const;
 
 export type Category = (typeof categories)[number];
@@ -217,5 +218,43 @@ export const tools: Tool[] = [
     icon: "🔒",
     color: "bg-red-50 border-red-200",
     category: "PDF Security",
+  },
+
+  // Audio Converter
+  {
+    id: "mp3-to-wav",
+    name: "MP3 to WAV",
+    description: "Convert MP3 audio files to high quality WAV format. Fast and free conversion in your browser.",
+    href: "/mp3-to-wav",
+    icon: "🎵➡️🔊",
+    color: "bg-violet-50 border-violet-200",
+    category: "Audio Converter",
+  },
+  {
+    id: "wav-to-mp3",
+    name: "WAV to MP3",
+    description: "Compress WAV files to MP3 format. Reduce file size while keeping great audio quality.",
+    href: "/wav-to-mp3",
+    icon: "🔊➡️🎵",
+    color: "bg-fuchsia-50 border-fuchsia-200",
+    category: "Audio Converter",
+  },
+  {
+    id: "mp4-to-mp3",
+    name: "MP4 to MP3",
+    description: "Extract audio from MP4 video files. Convert any video to MP3 audio instantly.",
+    href: "/mp4-to-mp3",
+    icon: "🎬➡️🎵",
+    color: "bg-cyan-50 border-cyan-200",
+    category: "Audio Converter",
+  },
+  {
+    id: "mp4-to-wav",
+    name: "MP4 to WAV",
+    description: "Extract high quality WAV audio from MP4 video files. Lossless audio extraction.",
+    href: "/mp4-to-wav",
+    icon: "🎬➡️🔊",
+    color: "bg-teal-50 border-teal-200",
+    category: "Audio Converter",
   },
 ];

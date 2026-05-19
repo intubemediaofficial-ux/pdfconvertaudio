@@ -1,0 +1,171 @@
+"use client";
+
+import { useState, useRef } from "react";
+
+export default function WavToMp3() {
+  const [file, setFile] = useState<File | null>(null);
+  const [converting, setConverting] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [bitrate, setBitrate] = useState("192");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFiles = (files: FileList | File[]) => {
+    const f = Array.from(files)[0];
+    if (f) {
+      setFile(f);
+      setDone(false);
+      setError("");
+    }
+  };
+
+  const convert = async () => {
+    if (!file) return;
+    setConverting(true);
+    setProgress("Loading FFmpeg...");
+    setError("");
+
+    try {
+      const { getFFmpeg, convertAudio } = await import("@/lib/ffmpeg-helper");
+      await getFFmpeg();
+      setProgress("Converting WAV to MP3...");
+
+      const arrayBuf = await file.arrayBuffer();
+      const inputData = new Uint8Array(arrayBuf);
+      const outputData = await convertAudio(
+        inputData,
+        "input.wav",
+        "output.mp3",
+        ["-b:a", bitrate + "k"]
+      );
+
+      const blob = new Blob([outputData.buffer as ArrayBuffer], { type: "audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file.name.replace(/\.wav$/i, "") + ".mp3";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setDone(true);
+      setProgress("");
+    } catch (err) {
+      setError("Error converting: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setConverting(false);
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  };
+
+  return (
+    <div className="tool-container">
+      <div className="text-center mb-10">
+        <h1 className="page-title">WAV to MP3</h1>
+        <p className="page-desc mt-3">
+          Compress WAV audio files to MP3 format. Reduce file size while keeping
+          great audio quality.
+        </p>
+      </div>
+
+      {!file ? (
+        <div className="flex flex-col items-center gap-6 py-12">
+          <div
+            className={`upload-zone p-20 text-center cursor-pointer w-full max-w-2xl ${dragOver ? "drag-over" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+            onClick={() => inputRef.current?.click()}
+          >
+            <div className="text-6xl mb-6">🔊</div>
+            <button type="button" className="btn-primary mb-4">Select WAV File</button>
+            <p className="text-gray-400 text-lg mt-2">or drop WAV file here</p>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".wav,audio/wav,audio/x-wav"
+              onChange={(e) => e.target.files && handleFiles(e.target.files)}
+              className="hidden"
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="max-w-2xl mx-auto">
+          <div className="file-card flex items-center justify-between mb-6">
+            <div>
+              <div className="file-name">{file.name}</div>
+              <div className="file-size">{formatSize(file.size)}</div>
+            </div>
+            <button
+              onClick={() => { setFile(null); setDone(false); setError(""); }}
+              className="text-gray-400 hover:text-red-500 text-2xl"
+            >
+              &times;
+            </button>
+          </div>
+
+          {/* Bitrate Setting */}
+          <div className="file-card mb-6">
+            <label className="setting-label">MP3 Quality (Bitrate)</label>
+            <div className="flex gap-3 flex-wrap">
+              {[
+                { value: "128", label: "128 kbps — Good" },
+                { value: "192", label: "192 kbps — Great" },
+                { value: "256", label: "256 kbps — High" },
+                { value: "320", label: "320 kbps — Best" },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setBitrate(opt.value)}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    bitrate === opt.value
+                      ? "bg-red-500 text-white shadow-md"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 text-center mb-6">
+              <p className="text-red-600 font-semibold text-lg">{error}</p>
+            </div>
+          )}
+
+          {done ? (
+            <div className="success-msg">
+              <p>MP3 file downloaded successfully!</p>
+            </div>
+          ) : (
+            <div className="text-center">
+              {progress && (
+                <div className="mb-4">
+                  <div className="inline-flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-full px-6 py-3">
+                    <div className="w-5 h-5 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-blue-700 font-semibold">{progress}</span>
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={convert}
+                disabled={converting}
+                className="btn-primary disabled:opacity-50"
+              >
+                {converting ? "Converting..." : "Convert to MP3"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

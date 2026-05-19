@@ -4,7 +4,7 @@ export default function Footer() {
   return (
     <footer className="bg-gray-900 text-gray-300 mt-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div>
             <h3 className="text-white font-bold text-lg mb-5">Organize</h3>
             <ul className="space-y-3 text-base">
@@ -41,6 +41,15 @@ export default function Footer() {
               <li><Link href="/sign-pdf" className="hover:text-white transition">Sign PDF</Link></li>
               <li><Link href="/protect-pdf" className="hover:text-white transition">Protect PDF</Link></li>
               <li><Link href="/unlock-pdf" className="hover:text-white transition">Unlock PDF</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-white font-bold text-lg mb-5">Audio</h3>
+            <ul className="space-y-3 text-base">
+              <li><Link href="/mp3-to-wav" className="hover:text-white transition">MP3 to WAV</Link></li>
+              <li><Link href="/wav-to-mp3" className="hover:text-white transition">WAV to MP3</Link></li>
+              <li><Link href="/mp4-to-mp3" className="hover:text-white transition">MP4 to MP3</Link></li>
+              <li><Link href="/mp4-to-wav" className="hover:text-white transition">MP4 to WAV</Link></li>
             </ul>
           </div>
         </div>

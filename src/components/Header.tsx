@@ -29,11 +29,11 @@ export default function Header() {
             <Link href="/edit-pdf" className="hover:text-red-500 transition">
               Edit
             </Link>
-            <Link href="/sign-pdf" className="hover:text-red-500 transition">
-              Sign
+            <Link href="/mp4-to-mp3" className="hover:text-purple-500 transition">
+              Audio
             </Link>
             <Link href="/#all-tools" className="bg-red-500 text-white px-5 py-2 rounded-full hover:bg-red-600 transition text-sm">
-              All PDF Tools
+              All Tools
             </Link>
           </div>
 
@@ -61,7 +61,10 @@ export default function Header() {
               { href: "/sign-pdf", label: "Sign PDF" },
               { href: "/rotate-pdf", label: "Rotate PDF" },
               { href: "/pdf-to-jpg", label: "PDF to JPG" },
-              { href: "/jpg-to-pdf", label: "JPG to PDF" },
+              { href: "/mp4-to-mp3", label: "MP4 to MP3" },
+              { href: "/mp3-to-wav", label: "MP3 to WAV" },
+              { href: "/wav-to-mp3", label: "WAV to MP3" },
+              { href: "/mp4-to-wav", label: "MP4 to WAV" },
             ].map((item) => (
               <Link
                 key={item.href}

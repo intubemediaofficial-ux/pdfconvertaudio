@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { getFFmpeg, convertAudio } from "@/lib/ffmpeg-helper";
 
 export default function Mp3ToWav() {
   const [file, setFile] = useState<File | null>(null);
@@ -27,7 +28,6 @@ export default function Mp3ToWav() {
     setError("");
 
     try {
-      const { getFFmpeg, convertAudio } = await import("@/lib/ffmpeg-helper");
       await getFFmpeg();
       setProgress("Converting MP3 to WAV...");
 

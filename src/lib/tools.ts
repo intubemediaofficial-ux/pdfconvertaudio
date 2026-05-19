@@ -222,6 +222,15 @@ export const tools: Tool[] = [
 
   // Audio Converter
   {
+    id: "audio-converter",
+    name: "Audio Converter",
+    description: "Universal audio converter — convert any audio/video file to MP3, WAV, AAC, OGG, FLAC, M4A, OPUS, AIFF, WMA.",
+    href: "/audio-converter",
+    icon: "🎵🔄",
+    color: "bg-purple-50 border-purple-200",
+    category: "Audio Converter",
+  },
+  {
     id: "mp3-to-wav",
     name: "MP3 to WAV",
     description: "Convert MP3 audio files to high quality WAV format. Fast and free conversion in your browser.",

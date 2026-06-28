@@ -15,6 +15,7 @@ export const categories = [
   "Convert PDF",
   "Edit PDF",
   "PDF Security",
+  "PDF Intelligence",
   "Audio Converter",
 ] as const;
 
@@ -218,6 +219,26 @@ export const tools: Tool[] = [
     icon: "🔒",
     color: "bg-red-50 border-red-200",
     category: "PDF Security",
+  },
+
+  // PDF Intelligence
+  {
+    id: "compare",
+    name: "Compare PDF",
+    description: "Show a side-by-side document comparison and easily spot changes between different file versions.",
+    href: "/compare-pdf",
+    icon: "📊",
+    color: "bg-blue-50 border-blue-200",
+    category: "PDF Intelligence",
+  },
+  {
+    id: "redact",
+    name: "Redact PDF",
+    description: "Redact text and graphics to permanently remove sensitive information from a PDF.",
+    href: "/redact-pdf",
+    icon: "🔏",
+    color: "bg-gray-50 border-gray-300",
+    category: "PDF Intelligence",
   },
 
   // Audio Converter

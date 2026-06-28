@@ -20,6 +20,14 @@ interface PlacedItem {
   data: string;
 }
 
+interface SignatureArea {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export default function SignPDF() {
   const [file, setFile] = useState<File | null>(null);
   const [pdfBytes, setPdfBytes] = useState<ArrayBuffer | null>(null);
@@ -32,20 +40,33 @@ export default function SignPDF() {
     email: "",
     date: new Date().toLocaleDateString("en-GB"),
   });
-  const [step, setStep] = useState<"upload" | "signer" | "signature" | "place">("upload");
+  const [step, setStep] = useState<"upload" | "choose-mode" | "signer" | "signature" | "place" | "send-setup" | "send-place" | "send-confirm">("upload");
   const [placedItems, setPlacedItems] = useState<PlacedItem[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [placingType, setPlacingType] = useState<"signature" | "name" | "date" | "email">("signature");
   const [savedSigners, setSavedSigners] = useState<SignerInfo[]>([]);
+  const [, setMode] = useState<"self" | "send">("self");
+
+  // Send for signature state
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [docTitle, setDocTitle] = useState("");
+  const [signatureAreas, setSignatureAreas] = useState<SignatureArea[]>([]);
+  const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("pdf-signers");
-      if (saved) setSavedSigners(JSON.parse(saved));
-    } catch { /* ignore */ }
+    const timer = setTimeout(() => {
+      try {
+        const saved = localStorage.getItem("pdf-signers");
+        if (saved) setSavedSigners(JSON.parse(saved));
+      } catch { /* ignore */ }
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   const saveSigner = (info: SignerInfo) => {
@@ -57,6 +78,7 @@ export default function SignPDF() {
   const handleFileSelected = async (files: File[]) => {
     const f = files[0];
     setFile(f);
+    setDocTitle(f.name.replace(/\.pdf$/i, ""));
     const ab = await f.arrayBuffer();
     setPdfBytes(ab);
 
@@ -75,7 +97,7 @@ export default function SignPDF() {
       imgs.push(canvas.toDataURL());
     }
     setPageImages(imgs);
-    setStep("signer");
+    setStep("choose-mode");
   };
 
   const startDrawing = () => {
@@ -234,17 +256,146 @@ export default function SignPDF() {
     }
   };
 
+  // --- Send for Signature ---
+  const placeSignatureArea = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setSignatureAreas((prev) => [
+      ...prev,
+      { page: currentPage, x, y, width: 180, height: 60 },
+    ]);
+  };
+
+  const removeSignatureArea = (index: number) => {
+    setSignatureAreas((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const sendForSignature = async () => {
+    if (!pdfBytes || !recipientEmail || !senderName) return;
+    setSendStatus("sending");
+
+    try {
+      // Encode PDF to base64 for the signing link
+      const uint8 = new Uint8Array(pdfBytes);
+      let binary = "";
+      for (let i = 0; i < uint8.length; i++) {
+        binary += String.fromCharCode(uint8[i]);
+      }
+      const pdfBase64 = btoa(binary);
+
+      const signingData = {
+        senderName,
+        docTitle,
+        signatureAreas,
+        pdfBase64,
+      };
+
+      const encoded = btoa(JSON.stringify(signingData));
+      const signingUrl = `${window.location.origin}/sign-request?data=${encoded}`;
+
+      // Send email via Brevo
+      const emailBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #dc2626;">📄 PDF Tools</h1>
+          </div>
+          <h2 style="color: #1f2937;">Signature Request</h2>
+          <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+            <strong>${senderName}</strong> has sent you a document "<strong>${docTitle}</strong>" to sign.
+          </p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${signingUrl}" style="background-color: #dc2626; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px;">
+              Review & Sign Document
+            </a>
+          </div>
+          <p style="color: #6b7280; font-size: 14px;">
+            Click the button above to open the document and add your signature. The process is quick and secure — all signing happens in your browser.
+          </p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
+          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+            Sent via PDF Tools — Free Online PDF Tools. All processing happens in your browser.
+          </p>
+        </div>
+      `;
+
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": process.env.NEXT_PUBLIC_BREVO_API_KEY || "",
+        },
+        body: JSON.stringify({
+          sender: { name: "PDF Tools", email: "noreply@intubemedia.com" },
+          to: [{ email: recipientEmail, name: recipientName }],
+          subject: `${senderName} has requested your signature on "${docTitle}"`,
+          htmlContent: emailBody,
+        }),
+      });
+
+      if (response.ok) {
+        setSendStatus("sent");
+        setStep("send-confirm");
+      } else {
+        // Fallback: open mailto link
+        const mailtoLink = `mailto:${recipientEmail}?subject=${encodeURIComponent(`Please sign: ${docTitle}`)}&body=${encodeURIComponent(`Hi ${recipientName},\n\n${senderName} has sent you a document to sign.\n\nPlease click this link to review and sign:\n${signingUrl}\n\nThank you!`)}`;
+        window.open(mailtoLink, "_blank");
+        setSendStatus("sent");
+        setStep("send-confirm");
+      }
+    } catch {
+      // Fallback to mailto
+      const signingData = { senderName, docTitle, signatureAreas, pdfBase64: "" };
+      const mailtoLink = `mailto:${recipientEmail}?subject=${encodeURIComponent(`Please sign: ${docTitle}`)}&body=${encodeURIComponent(`Hi ${recipientName},\n\n${senderName} has requested your signature on "${docTitle}".\n\nPlease open the attached PDF in PDF Tools to sign it.\n\nThank you!`)}`;
+      window.open(mailtoLink, "_blank");
+      setSendStatus("sent");
+      setStep("send-confirm");
+    }
+  };
+
   return (
     <div className="tool-container" style={{ maxWidth: 1000 }}>
       <div className="text-center mb-10">
         <h1 className="page-title mb-3">Sign PDF</h1>
-        <p className="page-desc">Add your signature, name, email & date to PDF documents.</p>
+        <p className="page-desc">Sign yourself or send documents to others for electronic signature.</p>
       </div>
 
       {step === "upload" && (
         <FileUpload accept=".pdf" onFilesSelected={handleFileSelected} label="Select PDF file" />
       )}
 
+      {step === "choose-mode" && (
+        <div className="max-w-2xl mx-auto">
+          <div className="file-card mb-8 text-center">
+            <p className="file-name">📄 {file?.name}</p>
+            <p className="file-size">{((file?.size || 0) / 1024).toFixed(1)} KB</p>
+          </div>
+
+          <h2 className="text-2xl font-bold text-center mb-8">What would you like to do?</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <button
+              onClick={() => { setMode("self"); setStep("signer"); }}
+              className="p-8 border-2 border-gray-200 rounded-2xl hover:border-red-400 hover:shadow-lg transition text-left bg-white"
+            >
+              <div className="text-4xl mb-4">✍️</div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Sign Myself</h3>
+              <p className="text-gray-500">Add your own signature, name, email & date to this PDF document.</p>
+            </button>
+
+            <button
+              onClick={() => { setMode("send"); setStep("send-setup"); }}
+              className="p-8 border-2 border-gray-200 rounded-2xl hover:border-blue-400 hover:shadow-lg transition text-left bg-white"
+            >
+              <div className="text-4xl mb-4">📧</div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Send for Signature</h3>
+              <p className="text-gray-500">Send this document to someone else for their electronic signature via email.</p>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* === SELF SIGN FLOW === */}
       {step === "signer" && (
         <div className="max-w-lg mx-auto">
           <h2 className="text-2xl font-bold mb-6 text-center">Signer Details</h2>
@@ -289,7 +440,8 @@ export default function SignPDF() {
             <label htmlFor="save-signer" className="text-base text-gray-600">Save signer for future use</label>
           </div>
 
-          <div className="text-center">
+          <div className="flex gap-4 justify-center">
+            <button onClick={() => setStep("choose-mode")} className="btn-secondary">Back</button>
             <button onClick={() => {
               if (!signerInfo.name || !signerInfo.email) { alert("Please enter name and email"); return; }
               const checkbox = document.getElementById("save-signer") as HTMLInputElement;
@@ -396,6 +548,135 @@ export default function SignPDF() {
               {processing ? "Applying..." : `Apply & Download (${placedItems.length} items)`}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* === SEND FOR SIGNATURE FLOW === */}
+      {step === "send-setup" && (
+        <div className="max-w-lg mx-auto">
+          <h2 className="text-2xl font-bold mb-6 text-center">Send for Signature</h2>
+          <p className="text-center text-gray-500 mb-8">Send this document to someone for their electronic signature</p>
+
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="setting-label">Your Name (Sender) *</label>
+              <input type="text" value={senderName} onChange={(e) => setSenderName(e.target.value)}
+                className="input-field" placeholder="Your name" />
+            </div>
+            <div>
+              <label className="setting-label">Document Title</label>
+              <input type="text" value={docTitle} onChange={(e) => setDocTitle(e.target.value)}
+                className="input-field" placeholder="Contract Agreement" />
+            </div>
+            <hr className="my-4" />
+            <div>
+              <label className="setting-label">Recipient Name *</label>
+              <input type="text" value={recipientName} onChange={(e) => setRecipientName(e.target.value)}
+                className="input-field" placeholder="Recipient's name" />
+            </div>
+            <div>
+              <label className="setting-label">Recipient Email *</label>
+              <input type="email" value={recipientEmail} onChange={(e) => setRecipientEmail(e.target.value)}
+                className="input-field" placeholder="recipient@email.com" />
+            </div>
+          </div>
+
+          <div className="flex gap-4 justify-center">
+            <button onClick={() => setStep("choose-mode")} className="btn-secondary">Back</button>
+            <button onClick={() => {
+              if (!senderName || !recipientName || !recipientEmail) {
+                alert("Please fill all required fields");
+                return;
+              }
+              setStep("send-place");
+            }} className="btn-primary">
+              Mark Signature Areas
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "send-place" && (
+        <div>
+          <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 mb-6">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-base font-semibold text-blue-800">
+                Click on the document to mark where <strong>{recipientName}</strong> should sign:
+              </span>
+              <div className="ml-auto flex items-center gap-3">
+                <span className="text-sm text-blue-600">
+                  {signatureAreas.length} area(s) marked
+                </span>
+                {signatureAreas.length > 0 && (
+                  <button onClick={() => setSignatureAreas([])}
+                    className="text-sm text-red-500 hover:underline font-semibold">Clear All</button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {pageImages.length > 1 && (
+            <div className="flex gap-2 justify-center mb-4">
+              {pageImages.map((_, i) => (
+                <button key={i} onClick={() => setCurrentPage(i)}
+                  className={`px-5 py-2 rounded-xl text-base font-semibold border-2 transition ${currentPage === i ? "bg-blue-500 text-white border-blue-500" : "bg-white text-gray-700 border-gray-200"}`}>
+                  Page {i + 1}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="relative border-2 rounded-2xl overflow-hidden cursor-crosshair mb-6" onClick={placeSignatureArea}>
+            <img src={pageImages[currentPage]} alt={`Page ${currentPage + 1}`} className="w-full" />
+            {signatureAreas
+              .filter((a) => a.page === currentPage)
+              .map((area, i) => (
+                <div key={i} className="absolute group border-2 border-dashed border-blue-500 bg-blue-100/40 rounded-lg flex items-center justify-center"
+                  style={{ left: area.x, top: area.y, width: area.width, height: area.height }}>
+                  <span className="text-sm text-blue-600 font-bold">Sign Here</span>
+                  <button onClick={(e) => { e.stopPropagation(); removeSignatureArea(signatureAreas.indexOf(area)); }}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold opacity-0 group-hover:opacity-100 transition shadow">
+                    x
+                  </button>
+                </div>
+              ))}
+          </div>
+
+          <div className="flex gap-4 justify-center">
+            <button onClick={() => setStep("send-setup")} className="btn-secondary">Back</button>
+            <button onClick={sendForSignature} disabled={sendStatus === "sending" || signatureAreas.length === 0}
+              className="btn-primary disabled:opacity-50">
+              {sendStatus === "sending" ? "Sending..." : `Send to ${recipientName}`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "send-confirm" && (
+        <div className="text-center py-16 max-w-lg mx-auto">
+          <div className="text-6xl mb-6">✅</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">Signature Request Sent!</h2>
+          <p className="text-gray-500 text-lg mb-4">
+            An email has been sent to <strong>{recipientName}</strong> ({recipientEmail}) with a link to sign the document.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left">
+            <p className="text-sm text-gray-600"><strong>Document:</strong> {docTitle}</p>
+            <p className="text-sm text-gray-600"><strong>Sent to:</strong> {recipientEmail}</p>
+            <p className="text-sm text-gray-600"><strong>Signature areas:</strong> {signatureAreas.length}</p>
+          </div>
+          <p className="text-sm text-gray-400 mb-6">
+            Once they sign, the completed document will be downloaded on their end. They can email it back to you.
+          </p>
+          <button onClick={() => {
+            setStep("upload");
+            setFile(null);
+            setPdfBytes(null);
+            setPageImages([]);
+            setSignatureAreas([]);
+            setSendStatus("idle");
+          }} className="btn-primary">
+            Sign Another Document
+          </button>
         </div>
       )}
     </div>

@@ -41,6 +41,8 @@ export default function Footer() {
               <li><Link href="/sign-pdf" className="hover:text-white transition">Sign PDF</Link></li>
               <li><Link href="/protect-pdf" className="hover:text-white transition">Protect PDF</Link></li>
               <li><Link href="/unlock-pdf" className="hover:text-white transition">Unlock PDF</Link></li>
+              <li><Link href="/compare-pdf" className="hover:text-white transition">Compare PDF</Link></li>
+              <li><Link href="/redact-pdf" className="hover:text-white transition">Redact PDF</Link></li>
             </ul>
           </div>
           <div>

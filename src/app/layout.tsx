@@ -24,6 +24,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if(typeof Uint8Array.prototype.toHex!=='function'){Uint8Array.prototype.toHex=function(){return Array.from(this).map(function(b){return b.toString(16).padStart(2,'0')}).join('')};}if(typeof Uint8Array.fromHex!=='function'){Uint8Array.fromHex=function(hex){var bytes=new Uint8Array(hex.length/2);for(var i=0;i<hex.length;i+=2){bytes[i/2]=parseInt(hex.substring(i,i+2),16)}return bytes};}if(typeof Map.prototype.getOrInsertComputed!=='function'){Map.prototype.getOrInsertComputed=function(key,cb){if(this.has(key))return this.get(key);var v=cb(key);this.set(key,v);return v};}`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">
         <Header />
         <main className="flex-1">{children}</main>

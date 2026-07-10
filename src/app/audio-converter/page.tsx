@@ -128,74 +128,132 @@ function FormatPicker({ label, selected, formats, onSelect, color }: FormatPicke
   );
 }
 
+type ItemStatus = "pending" | "converting" | "done" | "error";
+
+interface QueueItem {
+  id: string;
+  file: File;
+  status: ItemStatus;
+  error?: string;
+  downloadUrl?: string;
+  downloadName?: string;
+}
+
 export default function AudioConverter() {
-  const [file, setFile] = useState<File | null>(null);
+  const [items, setItems] = useState<QueueItem[]>([]);
   const [inputFormat, setInputFormat] = useState("mp3");
   const [outputFormat, setOutputFormat] = useState("wav");
   const [bitrate, setBitrate] = useState("192");
   const [converting, setConverting] = useState(false);
   const [progress, setProgress] = useState("");
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState("");
+  const [allDone, setAllDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = (files: FileList | File[]) => {
-    const f = Array.from(files)[0];
-    if (f) {
-      setFile(f);
-      setDone(false);
-      setError("");
-      const ext = detectInputExt(f.name);
-      setInputFormat(ext);
-    }
+    const arr = Array.from(files);
+    if (arr.length === 0) return;
+    const newItems: QueueItem[] = arr.map((f, i) => ({
+      id: `${Date.now()}-${i}-${f.name}`,
+      file: f,
+      status: "pending",
+    }));
+    setItems((prev) => [...prev, ...newItems]);
+    setAllDone(false);
+    const ext = detectInputExt(arr[0].name);
+    setInputFormat(ext);
+  };
+
+  const removeItem = (id: string) => {
+    setItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const clearAll = () => {
+    setItems([]);
+    setAllDone(false);
+    setProgress("");
   };
 
   const convert = async () => {
-    if (!file) return;
+    const pending = items.filter((it) => it.status === "pending" || it.status === "error");
+    if (pending.length === 0) return;
     setConverting(true);
+    setAllDone(false);
     setProgress("Loading FFmpeg (first time may take ~25 seconds)...");
-    setError("");
 
     try {
       await getFFmpeg();
-      setProgress(`Converting to ${outputFormat.toUpperCase()}...`);
-
-      const arrayBuf = await file.arrayBuffer();
-      const inputData = new Uint8Array(arrayBuf);
-      const inputExt = detectInputExt(file.name);
-      const format = outputFormats.find((f) => f.value === outputFormat);
-      const outputExt = format?.ext || "." + outputFormat;
-      const ffmpegArgs = getFFmpegArgs(outputFormat, bitrate);
-
-      const outputData = await convertAudio(
-        inputData,
-        `input.${inputExt}`,
-        `output${outputExt}`,
-        ffmpegArgs
-      );
-
-      const blob = new Blob([outputData.buffer as ArrayBuffer], {
-        type: format?.mime || "audio/mpeg",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const baseName = file.name.replace(/\.[^.]+$/, "");
-      a.download = baseName + outputExt;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      setDone(true);
-      setProgress("");
     } catch (err) {
-      setError(
-        "Error converting: " +
-          (err instanceof Error ? err.message : String(err))
-      );
-    } finally {
+      setProgress("");
       setConverting(false);
+      setItems((prev) =>
+        prev.map((it) =>
+          it.status === "pending"
+            ? { ...it, status: "error", error: "FFmpeg load failed: " + (err instanceof Error ? err.message : String(err)) }
+            : it
+        )
+      );
+      return;
     }
+
+    const format = outputFormats.find((f) => f.value === outputFormat);
+    const outputExt = format?.ext || "." + outputFormat;
+    const ffmpegArgs = getFFmpegArgs(outputFormat, bitrate);
+
+    let index = 0;
+    for (const item of pending) {
+      index++;
+      setProgress(`Converting ${index} of ${pending.length} → ${outputFormat.toUpperCase()}...`);
+      setItems((prev) =>
+        prev.map((it) => (it.id === item.id ? { ...it, status: "converting", error: undefined } : it))
+      );
+
+      try {
+        const arrayBuf = await item.file.arrayBuffer();
+        const inputData = new Uint8Array(arrayBuf);
+        const inputExt = detectInputExt(item.file.name);
+
+        const outputData = await convertAudio(
+          inputData,
+          `input_${index}.${inputExt}`,
+          `output_${index}${outputExt}`,
+          ffmpegArgs
+        );
+
+        const blob = new Blob([outputData.buffer as ArrayBuffer], {
+          type: format?.mime || "audio/mpeg",
+        });
+        const url = URL.createObjectURL(blob);
+        const baseName = item.file.name.replace(/\.[^.]+$/, "");
+        const downloadName = baseName + outputExt;
+
+        // Auto-download as soon as this file is converted
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        setItems((prev) =>
+          prev.map((it) =>
+            it.id === item.id ? { ...it, status: "done", downloadUrl: url, downloadName } : it
+          )
+        );
+      } catch (err) {
+        setItems((prev) =>
+          prev.map((it) =>
+            it.id === item.id
+              ? { ...it, status: "error", error: err instanceof Error ? err.message : String(err) }
+              : it
+          )
+        );
+      }
+    }
+
+    setProgress("");
+    setConverting(false);
+    setAllDone(true);
   };
 
   const formatSize = (bytes: number) => {
@@ -206,6 +264,8 @@ export default function AudioConverter() {
 
   const selectedFormat = outputFormats.find((f) => f.value === outputFormat);
   const showBitrate = !["wav", "flac", "aiff"].includes(outputFormat);
+  const doneCount = items.filter((it) => it.status === "done").length;
+  const pendingCount = items.filter((it) => it.status === "pending" || it.status === "error").length;
 
   return (
     <div className="tool-container">
@@ -221,7 +281,7 @@ export default function AudioConverter() {
       <div className="flex items-center justify-center gap-6 mb-10 flex-wrap">
         <FormatPicker
           label="From"
-          selected={file ? detectInputExt(file.name) : inputFormat}
+          selected={items.length > 0 ? detectInputExt(items[0].file.name) : inputFormat}
           formats={inputFormats}
           onSelect={setInputFormat}
           color="text-gray-700"
@@ -241,7 +301,7 @@ export default function AudioConverter() {
         />
       </div>
 
-      {!file ? (
+      {items.length === 0 ? (
         <div className="flex flex-col items-center gap-6 py-8">
           <div
             className={`upload-zone p-20 text-center cursor-pointer w-full max-w-2xl ${dragOver ? "drag-over" : ""}`}
@@ -251,14 +311,18 @@ export default function AudioConverter() {
             onClick={() => inputRef.current?.click()}
           >
             <div className="text-6xl mb-6">🎵</div>
-            <button type="button" className="btn-primary mb-4">Select File</button>
-            <p className="text-gray-400 text-lg mt-2">or drop your file here</p>
+            <button type="button" className="btn-primary mb-4">Select Files</button>
+            <p className="text-gray-400 text-lg mt-2">or drop your files here</p>
             <p className="text-gray-300 text-sm mt-2">
+              Upload multiple files at once — 10, 20 or more. Each downloads as it finishes.
+            </p>
+            <p className="text-gray-300 text-sm mt-1">
               Supports MP3, WAV, AAC, OGG, FLAC, M4A, OPUS, MP4, MKV, AVI, MOV
             </p>
             <input
               ref={inputRef}
               type="file"
+              multiple
               accept={inputAccept}
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
               className="hidden"
@@ -267,17 +331,80 @@ export default function AudioConverter() {
         </div>
       ) : (
         <div className="max-w-2xl mx-auto">
-          <div className="file-card flex items-center justify-between mb-6">
-            <div>
-              <div className="file-name">{file.name}</div>
-              <div className="file-size">{formatSize(file.size)}</div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-gray-600 font-semibold">
+              {items.length} file{items.length > 1 ? "s" : ""}
+              {doneCount > 0 && <span className="text-green-600"> · {doneCount} done</span>}
             </div>
-            <button
-              onClick={() => { setFile(null); setDone(false); setError(""); }}
-              className="text-gray-400 hover:text-red-500 text-2xl"
-            >
-              &times;
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => inputRef.current?.click()}
+                disabled={converting}
+                className="text-sm font-semibold text-red-500 hover:text-red-600 disabled:opacity-50"
+              >
+                + Add more
+              </button>
+              <button
+                onClick={clearAll}
+                disabled={converting}
+                className="text-sm font-semibold text-gray-400 hover:text-gray-600 disabled:opacity-50"
+              >
+                Clear all
+              </button>
+            </div>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept={inputAccept}
+              onChange={(e) => e.target.files && handleFiles(e.target.files)}
+              className="hidden"
+            />
+          </div>
+
+          <div className="space-y-3 mb-6 max-h-96 overflow-y-auto">
+            {items.map((it) => (
+              <div key={it.id} className="file-card flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="file-name truncate">{it.file.name}</div>
+                  <div className="file-size">{formatSize(it.file.size)}</div>
+                  {it.status === "error" && it.error && (
+                    <div className="text-red-500 text-xs mt-1 truncate">{it.error}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 ml-3 shrink-0">
+                  {it.status === "pending" && (
+                    <span className="text-gray-400 text-sm">Waiting</span>
+                  )}
+                  {it.status === "converting" && (
+                    <span className="inline-flex items-center gap-2 text-blue-600 text-sm font-semibold">
+                      <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      Converting
+                    </span>
+                  )}
+                  {it.status === "done" && (
+                    <a
+                      href={it.downloadUrl}
+                      download={it.downloadName}
+                      className="text-green-600 text-sm font-semibold hover:text-green-700"
+                    >
+                      ✓ Download
+                    </a>
+                  )}
+                  {it.status === "error" && (
+                    <span className="text-red-500 text-sm font-semibold">Failed</span>
+                  )}
+                  {!converting && (
+                    <button
+                      onClick={() => removeItem(it.id)}
+                      className="text-gray-400 hover:text-red-500 text-xl leading-none"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Bitrate Setting (only for lossy formats) */}
@@ -294,7 +421,8 @@ export default function AudioConverter() {
                   <button
                     key={opt.value}
                     onClick={() => setBitrate(opt.value)}
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    disabled={converting}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 ${
                       bitrate === opt.value
                         ? "bg-red-500 text-white shadow-md"
                         : "bg-gray-100 text-gray-600 hover:bg-gray-200"
@@ -307,26 +435,24 @@ export default function AudioConverter() {
             </div>
           )}
 
-          {error && (
-            <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 text-center mb-6">
-              <p className="text-red-600 font-semibold text-lg">{error}</p>
-            </div>
-          )}
-
-          {done ? (
-            <div className="success-msg">
-              <p>{selectedFormat?.label} file downloaded successfully!</p>
-            </div>
-          ) : (
-            <div className="text-center">
-              {progress && (
-                <div className="mb-4">
-                  <div className="inline-flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-full px-6 py-3">
-                    <div className="w-5 h-5 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-blue-700 font-semibold">{progress}</span>
-                  </div>
+          <div className="text-center">
+            {progress && (
+              <div className="mb-4">
+                <div className="inline-flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-full px-6 py-3">
+                  <div className="w-5 h-5 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-blue-700 font-semibold">{progress}</span>
                 </div>
-              )}
+              </div>
+            )}
+            {allDone && !converting && (
+              <div className="success-msg mb-4">
+                <p>
+                  {doneCount} file{doneCount > 1 ? "s" : ""} converted to{" "}
+                  {selectedFormat?.label} and downloaded!
+                </p>
+              </div>
+            )}
+            {pendingCount > 0 && (
               <button
                 onClick={convert}
                 disabled={converting}
@@ -334,10 +460,10 @@ export default function AudioConverter() {
               >
                 {converting
                   ? "Converting..."
-                  : `Convert to ${selectedFormat?.label || "MP3"}`}
+                  : `Convert ${pendingCount} file${pendingCount > 1 ? "s" : ""} to ${selectedFormat?.label || "MP3"}`}
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>

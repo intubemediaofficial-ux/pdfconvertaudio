@@ -32,6 +32,9 @@ export default function Header() {
             <Link href="/audio-converter" className="hover:text-purple-500 transition">
               Audio
             </Link>
+            <Link href="/remove-background" className="hover:text-emerald-500 transition">
+              Background
+            </Link>
             <Link href="/#all-tools" className="bg-red-500 text-white px-5 py-2 rounded-full hover:bg-red-600 transition text-sm">
               All Tools
             </Link>
@@ -61,6 +64,7 @@ export default function Header() {
               { href: "/sign-pdf", label: "Sign PDF" },
               { href: "/rotate-pdf", label: "Rotate PDF" },
               { href: "/pdf-to-jpg", label: "PDF to JPG" },
+              { href: "/remove-background", label: "Remove Background" },
               { href: "/audio-converter", label: "Audio Converter" },
               { href: "/mp4-to-mp3", label: "MP4 to MP3" },
               { href: "/mp3-to-wav", label: "MP3 to WAV" },

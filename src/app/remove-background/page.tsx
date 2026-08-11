@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 
 type ItemStatus = "pending" | "processing" | "done" | "error";
+type ModelState = "loading" | "ready" | "failed";
 
 interface QueueItem {
   id: string;
@@ -38,6 +39,25 @@ function megapixels(w: number, h: number) {
   return ((w * h) / 1e6).toFixed(1);
 }
 
+// The library memoizes model init on JSON.stringify() of the config it is given,
+// so the preload and the actual calls must pass an identical object (same keys,
+// same order) or the preloaded session is thrown away and downloaded again.
+// `progress` is a function, which JSON.stringify drops, so adding it is safe.
+const MODEL_CONFIG = {
+  // The library feature-detects WebGPU and silently falls back to the wasm CPU
+  // path, so this is safe on browsers without it. `proxyToWorker` is only
+  // honoured on the WebGPU path (`useWebGPU && config.proxyToWorker`), so both
+  // are needed to get inference off the main thread and stop the tab freezing.
+  device: "gpu" as const,
+  proxyToWorker: true,
+  // Upscales the mask back to the source dimensions so the output keeps the
+  // input's full resolution (4K in, 4K out) rather than the 1024px the model
+  // runs at internally.
+  rescale: true,
+  // PNG is lossless and the only listed format carrying an alpha channel.
+  output: { format: "image/png" as const, quality: 1 },
+};
+
 /**
  * Re-encodes an image the model cannot decode into a lossless PNG, preserving
  * its exact pixel dimensions. Returns the original file when no work is needed.
@@ -69,6 +89,8 @@ export default function RemoveBackground() {
   const [progress, setProgress] = useState("");
   const [allDone, setAllDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [modelState, setModelState] = useState<ModelState>("loading");
+  const [modelPercent, setModelPercent] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<QueueItem[]>([]);
 
@@ -81,6 +103,34 @@ export default function RemoveBackground() {
         URL.revokeObjectURL(it.originalUrl);
         if (it.resultUrl) URL.revokeObjectURL(it.resultUrl);
       }
+    };
+  }, []);
+
+  // Fetch the model as soon as the page opens so it is already warm by the time
+  // the user has picked their files — otherwise the first image pays the full
+  // download cost.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { preload } = await import("@imgly/background-removal");
+        await preload({
+          ...MODEL_CONFIG,
+          progress: (_key, current, total) => {
+            if (cancelled || total <= 0) return;
+            setModelPercent(Math.round((current / total) * 100));
+          },
+        });
+        if (!cancelled) setModelState("ready");
+      } catch {
+        // Not fatal: `run()` retries the load when the user starts a batch.
+        if (!cancelled) setModelState("failed");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -142,7 +192,11 @@ export default function RemoveBackground() {
 
     setProcessing(true);
     setAllDone(false);
-    setProgress("Loading AI model (first time may take a while)...");
+    setProgress(
+      modelState === "ready"
+        ? "Starting..."
+        : "Loading AI model (first time may take a while)..."
+    );
 
     let removeBackground: typeof import("@imgly/background-removal").removeBackground;
     try {
@@ -182,12 +236,7 @@ export default function RemoveBackground() {
       try {
         const source = await normalizeForModel(item.file);
         const blob = await removeBackground(source, {
-          // Upscales the mask back to the source dimensions so the output keeps
-          // the input's full resolution (4K in, 4K out) rather than the 1024px
-          // the model runs at internally.
-          rescale: true,
-          // PNG is lossless and the only listed format carrying an alpha channel.
-          output: { format: "image/png", quality: 1 },
+          ...MODEL_CONFIG,
           progress: (key, current, total) => {
             if (key.startsWith("fetch")) {
               const pct = total > 0 ? Math.round((current / total) * 100) : 0;
@@ -267,6 +316,20 @@ export default function RemoveBackground() {
     <div className="tool-container">
       <div className="text-center mb-10">
         <h1 className="page-title">Remove Background</h1>
+        <div className="mt-4 flex justify-center">
+          {modelState === "loading" && (
+            <span className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-full px-4 py-1.5 text-sm font-semibold">
+              <span className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              Getting AI ready{modelPercent > 0 ? ` ${modelPercent}%` : ""} — you
+              can add photos meanwhile
+            </span>
+          )}
+          {modelState === "ready" && (
+            <span className="inline-flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 rounded-full px-4 py-1.5 text-sm font-semibold">
+              ⚡ AI ready — instant background removal
+            </span>
+          )}
+        </div>
         <p className="page-desc mt-3">
           Automatically remove the background from any photo — JPG, PNG, WEBP
           and more. Output is a lossless transparent PNG at the{" "}

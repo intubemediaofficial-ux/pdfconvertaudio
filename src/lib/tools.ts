@@ -16,6 +16,7 @@ export const categories = [
   "Edit PDF",
   "PDF Security",
   "PDF Intelligence",
+  "Image Tools",
   "Audio Converter",
 ] as const;
 
@@ -239,6 +240,17 @@ export const tools: Tool[] = [
     icon: "🔏",
     color: "bg-gray-50 border-gray-300",
     category: "PDF Intelligence",
+  },
+
+  // Image Tools
+  {
+    id: "remove-background",
+    name: "Remove Background",
+    description: "Automatically remove the background from any photo. JPG, PNG or WEBP in, transparent PNG out.",
+    href: "/remove-background",
+    icon: "🖼️✂️",
+    color: "bg-emerald-50 border-emerald-200",
+    category: "Image Tools",
   },
 
   // Audio Converter

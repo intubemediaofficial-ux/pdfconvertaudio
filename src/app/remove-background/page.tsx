@@ -12,14 +12,55 @@ interface QueueItem {
   originalUrl: string;
   resultUrl?: string;
   resultName?: string;
+  resultSize?: number;
+  width?: number;
+  height?: number;
 }
 
-const inputAccept = ".jpg,.jpeg,.png,.webp,.bmp,image/*";
+const inputAccept = ".jpg,.jpeg,.png,.webp,.bmp,.gif,.avif,.tif,.tiff,image/*";
+
+// Formats the background-removal model can decode directly. Anything else
+// (BMP, GIF, AVIF, TIFF, HEIC...) is re-encoded to PNG first, at full size.
+const NATIVELY_DECODABLE = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+]);
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / 1048576).toFixed(1) + " MB";
+}
+
+function megapixels(w: number, h: number) {
+  return ((w * h) / 1e6).toFixed(1);
+}
+
+/**
+ * Re-encodes an image the model cannot decode into a lossless PNG, preserving
+ * its exact pixel dimensions. Returns the original file when no work is needed.
+ */
+async function normalizeForModel(file: File): Promise<Blob> {
+  if (NATIVELY_DECODABLE.has(file.type)) return file;
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not get canvas context");
+    ctx.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/png")
+    );
+    if (!blob) throw new Error("Could not read this image format");
+    return blob;
+  } finally {
+    bitmap.close();
+  }
 }
 
 export default function RemoveBackground() {
@@ -139,8 +180,14 @@ export default function RemoveBackground() {
       );
 
       try {
-        const blob = await removeBackground(item.file, {
-          output: { format: "image/png" },
+        const source = await normalizeForModel(item.file);
+        const blob = await removeBackground(source, {
+          // Upscales the mask back to the source dimensions so the output keeps
+          // the input's full resolution (4K in, 4K out) rather than the 1024px
+          // the model runs at internally.
+          rescale: true,
+          // PNG is lossless and the only listed format carrying an alpha channel.
+          output: { format: "image/png", quality: 1 },
           progress: (key, current, total) => {
             if (key.startsWith("fetch")) {
               const pct = total > 0 ? Math.round((current / total) * 100) : 0;
@@ -157,6 +204,17 @@ export default function RemoveBackground() {
         const baseName = item.file.name.replace(/\.[^.]+$/, "");
         const resultName = `${baseName}-no-bg.png`;
 
+        let width: number | undefined;
+        let height: number | undefined;
+        try {
+          const outBitmap = await createImageBitmap(blob);
+          width = outBitmap.width;
+          height = outBitmap.height;
+          outBitmap.close();
+        } catch {
+          // Dimensions are display-only; failing to read them is not fatal.
+        }
+
         // Auto-download as soon as this image is ready
         const a = document.createElement("a");
         a.href = resultUrl;
@@ -168,7 +226,15 @@ export default function RemoveBackground() {
         setItems((prev) =>
           prev.map((it) =>
             it.id === item.id
-              ? { ...it, status: "done", resultUrl, resultName }
+              ? {
+                  ...it,
+                  status: "done",
+                  resultUrl,
+                  resultName,
+                  resultSize: blob.size,
+                  width,
+                  height,
+                }
               : it
           )
         );
@@ -202,9 +268,10 @@ export default function RemoveBackground() {
       <div className="text-center mb-10">
         <h1 className="page-title">Remove Background</h1>
         <p className="page-desc mt-3">
-          Automatically remove the background from any photo — JPG, PNG or WEBP.
-          Get a transparent PNG in seconds. Runs fully in your browser, your
-          images are never uploaded.
+          Automatically remove the background from any photo — JPG, PNG, WEBP
+          and more. Output is a lossless transparent PNG at the{" "}
+          <strong>full original resolution</strong> — put a 4K photo in, get a 4K
+          cutout out. Runs fully in your browser, your images are never uploaded.
         </p>
       </div>
 
@@ -230,10 +297,11 @@ export default function RemoveBackground() {
             </button>
             <p className="text-gray-400 text-lg mt-2">or drop your images here</p>
             <p className="text-gray-300 text-sm mt-2">
-              Upload multiple images at once — each downloads as it finishes.
+              Upload as many images as you like — no limit. Each one downloads
+              the moment it&apos;s ready.
             </p>
             <p className="text-gray-300 text-sm mt-1">
-              Supports JPG, JPEG, PNG, WEBP, BMP
+              JPG, PNG, WEBP, BMP, GIF, AVIF, TIFF &middot; full resolution kept
             </p>
             <input
               ref={inputRef}
@@ -325,7 +393,18 @@ export default function RemoveBackground() {
                   )}
                   <div className="min-w-0">
                     <div className="file-name truncate">{it.file.name}</div>
-                    <div className="file-size">{formatSize(it.file.size)}</div>
+                    <div className="file-size">
+                      {formatSize(it.file.size)}
+                      {it.status === "done" && it.width && it.height && (
+                        <span className="text-green-600">
+                          {" "}
+                          &rarr; {it.width}&times;{it.height} (
+                          {megapixels(it.width, it.height)} MP
+                          {it.resultSize ? `, ${formatSize(it.resultSize)}` : ""}
+                          )
+                        </span>
+                      )}
+                    </div>
                     {it.status === "error" && it.error && (
                       <div className="text-red-500 text-xs mt-1 truncate">
                         {it.error}

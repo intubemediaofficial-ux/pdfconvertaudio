@@ -46,13 +46,14 @@ export default function Footer() {
             </ul>
           </div>
           <div>
-            <h3 className="text-white font-bold text-lg mb-5">Audio</h3>
+            <h3 className="text-white font-bold text-lg mb-5">Audio &amp; Image</h3>
             <ul className="space-y-3 text-base">
               <li><Link href="/audio-converter" className="hover:text-white transition">Audio Converter</Link></li>
               <li><Link href="/mp3-to-wav" className="hover:text-white transition">MP3 to WAV</Link></li>
               <li><Link href="/wav-to-mp3" className="hover:text-white transition">WAV to MP3</Link></li>
               <li><Link href="/mp4-to-mp3" className="hover:text-white transition">MP4 to MP3</Link></li>
               <li><Link href="/mp4-to-wav" className="hover:text-white transition">MP4 to WAV</Link></li>
+              <li><Link href="/remove-background" className="hover:text-white transition">Remove Background</Link></li>
             </ul>
           </div>
         </div>

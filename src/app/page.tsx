@@ -28,7 +28,8 @@ export default function Home() {
           <div className="mt-6 inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-6 py-3">
             <span className="text-green-600 text-lg">🔒</span>
             <span className="text-green-700 font-semibold text-base">
-              All processing happens in your browser — your files never leave your device
+              PDF &amp; audio processing happens in your browser — those files never
+              leave your device
             </span>
           </div>
         </div>

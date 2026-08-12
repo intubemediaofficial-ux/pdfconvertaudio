@@ -65,7 +65,9 @@ export default function Footer() {
             <span className="ml-2 text-gray-400">— Free Online PDF Tools</span>
           </p>
           <p className="mt-3 text-gray-500 text-base">
-            All PDF processing happens directly in your browser. Your files never leave your device.
+            All PDF and audio processing happens directly in your browser — those
+            files never leave your device. Remove Background is the one exception:
+            photos are sent to our server, processed instantly and never stored.
           </p>
         </div>
       </div>

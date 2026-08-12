@@ -3,7 +3,12 @@
 import { useState, useRef, useEffect } from "react";
 
 type ItemStatus = "pending" | "processing" | "done" | "error";
-type ModelState = "loading" | "ready" | "failed";
+// "server" is the fast path; the in-browser model is only loaded if the API is
+// unreachable, since it costs an ~80 MB download and 20-30s per image on phones.
+type Engine = "checking" | "server" | "browser";
+
+const API_URL = "/api/remove-bg";
+const HEALTH_URL = "/api/bg-health";
 
 interface QueueItem {
   id: string;
@@ -18,7 +23,12 @@ interface QueueItem {
   height?: number;
 }
 
-const inputAccept = ".jpg,.jpeg,.png,.webp,.bmp,.gif,.avif,.tif,.tiff,image/*";
+const inputAccept =
+  ".jpg,.jpeg,.png,.webp,.bmp,.gif,.avif,.tif,.tiff,.heic,.heif,image/*";
+
+// Some browsers report an empty MIME type for iPhone HEIC files, so a
+// `type.startsWith("image/")` check alone silently drops them.
+const IMAGE_EXT = /\.(jpe?g|png|webp|bmp|gif|avif|tiff?|heic|heif)$/i;
 
 // Formats the background-removal model can decode directly. Anything else
 // (BMP, GIF, AVIF, TIFF, HEIC...) is re-encoded to PNG first, at full size.
@@ -39,17 +49,9 @@ function megapixels(w: number, h: number) {
   return ((w * h) / 1e6).toFixed(1);
 }
 
-// The library memoizes model init on JSON.stringify() of the config it is given,
-// so the preload and the actual calls must pass an identical object (same keys,
-// same order) or the preloaded session is thrown away and downloaded again.
-// `progress` is a function, which JSON.stringify drops, so adding it is safe.
+// Only used by the browser fallback. `device: "gpu"` was tried here and made
+// things worse on phones, so this stays on the plain CPU path.
 const MODEL_CONFIG = {
-  // The library feature-detects WebGPU and silently falls back to the wasm CPU
-  // path, so this is safe on browsers without it. `proxyToWorker` is only
-  // honoured on the WebGPU path (`useWebGPU && config.proxyToWorker`), so both
-  // are needed to get inference off the main thread and stop the tab freezing.
-  device: "gpu" as const,
-  proxyToWorker: true,
   // Upscales the mask back to the source dimensions so the output keeps the
   // input's full resolution (4K in, 4K out) rather than the 1024px the model
   // runs at internally.
@@ -57,6 +59,24 @@ const MODEL_CONFIG = {
   // PNG is lossless and the only listed format carrying an alpha channel.
   output: { format: "image/png" as const, quality: 1 },
 };
+
+/** Sends one image to the server for removal. Throws so the caller can fall back. */
+async function removeViaServer(file: File): Promise<Blob> {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(API_URL, { method: "POST", body });
+  if (!res.ok) {
+    let detail = `Server error ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = String(j.detail);
+    } catch {
+      // Non-JSON error body; the status code is enough.
+    }
+    throw new Error(detail);
+  }
+  return res.blob();
+}
 
 /**
  * Re-encodes an image the model cannot decode into a lossless PNG, preserving
@@ -89,12 +109,13 @@ export default function RemoveBackground() {
   const [progress, setProgress] = useState("");
   const [allDone, setAllDone] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [modelState, setModelState] = useState<ModelState>("loading");
-  const [modelPercent, setModelPercent] = useState(0);
+  const [engine, setEngine] = useState<Engine>("checking");
+  const engineRef = useRef<Engine>("checking");
   const inputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<QueueItem[]>([]);
 
   itemsRef.current = items;
+  engineRef.current = engine;
 
   // Release object URLs on unmount
   useEffect(() => {
@@ -106,26 +127,19 @@ export default function RemoveBackground() {
     };
   }, []);
 
-  // Fetch the model as soon as the page opens so it is already warm by the time
-  // the user has picked their files — otherwise the first image pays the full
-  // download cost.
+  // Decide up front whether the server can do the work. Only if it cannot do we
+  // pay for the in-browser model, so phones on the happy path download nothing.
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const { preload } = await import("@imgly/background-removal");
-        await preload({
-          ...MODEL_CONFIG,
-          progress: (_key, current, total) => {
-            if (cancelled || total <= 0) return;
-            setModelPercent(Math.round((current / total) * 100));
-          },
+        const res = await fetch(HEALTH_URL, {
+          signal: AbortSignal.timeout(8000),
         });
-        if (!cancelled) setModelState("ready");
+        if (!cancelled) setEngine(res.ok ? "server" : "browser");
       } catch {
-        // Not fatal: `run()` retries the load when the user starts a batch.
-        if (!cancelled) setModelState("failed");
+        if (!cancelled) setEngine("browser");
       }
     })();
 
@@ -135,7 +149,9 @@ export default function RemoveBackground() {
   }, []);
 
   const handleFiles = (files: FileList | File[]) => {
-    const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    const arr = Array.from(files).filter(
+      (f) => f.type.startsWith("image/") || IMAGE_EXT.test(f.name)
+    );
     if (arr.length === 0) return;
     const newItems: QueueItem[] = arr.map((f, i) => ({
       id: `${Date.now()}-${i}-${f.name}`,
@@ -192,34 +208,19 @@ export default function RemoveBackground() {
 
     setProcessing(true);
     setAllDone(false);
-    setProgress(
-      modelState === "ready"
-        ? "Starting..."
-        : "Loading AI model (first time may take a while)..."
-    );
+    setProgress("Starting...");
 
-    let removeBackground: typeof import("@imgly/background-removal").removeBackground;
-    try {
+    // Loaded on demand, so the server path never pulls in the model.
+    type RemoveFn = typeof import("@imgly/background-removal").removeBackground;
+    let browserRemove: RemoveFn | null = null;
+
+    const loadBrowserEngine = async (): Promise<RemoveFn> => {
+      if (browserRemove) return browserRemove;
+      setProgress("Loading AI model (first time may take a while)...");
       const mod = await import("@imgly/background-removal");
-      removeBackground = mod.removeBackground;
-    } catch (err) {
-      setProgress("");
-      setProcessing(false);
-      setItems((prev) =>
-        prev.map((it) =>
-          it.status === "pending"
-            ? {
-                ...it,
-                status: "error",
-                error:
-                  "Failed to load AI model: " +
-                  (err instanceof Error ? err.message : String(err)),
-              }
-            : it
-        )
-      );
-      return;
-    }
+      browserRemove = mod.removeBackground;
+      return browserRemove;
+    };
 
     let index = 0;
     for (const item of pending) {
@@ -234,20 +235,43 @@ export default function RemoveBackground() {
       );
 
       try {
-        const source = await normalizeForModel(item.file);
-        const blob = await removeBackground(source, {
-          ...MODEL_CONFIG,
-          progress: (key, current, total) => {
-            if (key.startsWith("fetch")) {
-              const pct = total > 0 ? Math.round((current / total) * 100) : 0;
-              setProgress(`Downloading AI model... ${pct}%`);
-            } else {
-              setProgress(
-                `Removing background ${index} of ${pending.length}...`
-              );
-            }
-          },
-        });
+        const runInBrowser = async () => {
+          const remove = await loadBrowserEngine();
+          const source = await normalizeForModel(item.file);
+          return remove(source, {
+            ...MODEL_CONFIG,
+            progress: (key, current, total) => {
+              if (key.startsWith("fetch")) {
+                const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+                setProgress(`Downloading AI model... ${pct}%`);
+              } else {
+                setProgress(
+                  `Removing background ${index} of ${pending.length}...`
+                );
+              }
+            },
+          });
+        };
+
+        let blob: Blob;
+        // Anything other than a known-bad server is worth trying first: if the
+        // health check has not answered yet, attempting the upload is still
+        // cheaper than committing to the 80 MB in-browser model.
+        if (engineRef.current !== "browser") {
+          try {
+            blob = await removeViaServer(item.file);
+          } catch (serverErr) {
+            // The server may be down or the image rejected; rather than fail
+            // the batch, switch to the browser engine for this and every
+            // remaining image.
+            console.warn("Server removal failed, using browser", serverErr);
+            setEngine("browser");
+            engineRef.current = "browser";
+            blob = await runInBrowser();
+          }
+        } else {
+          blob = await runInBrowser();
+        }
 
         const resultUrl = URL.createObjectURL(blob);
         const baseName = item.file.name.replace(/\.[^.]+$/, "");
@@ -317,24 +341,23 @@ export default function RemoveBackground() {
       <div className="text-center mb-10">
         <h1 className="page-title">Remove Background</h1>
         <div className="mt-4 flex justify-center">
-          {modelState === "loading" && (
-            <span className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-full px-4 py-1.5 text-sm font-semibold">
-              <span className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              Getting AI ready{modelPercent > 0 ? ` ${modelPercent}%` : ""} — you
-              can add photos meanwhile
+          {engine === "server" && (
+            <span className="inline-flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 rounded-full px-4 py-1.5 text-sm font-semibold">
+              ⚡ Turbo mode — a few seconds per photo
             </span>
           )}
-          {modelState === "ready" && (
-            <span className="inline-flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 rounded-full px-4 py-1.5 text-sm font-semibold">
-              ⚡ AI ready — instant background removal
+          {engine === "browser" && (
+            <span className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-full px-4 py-1.5 text-sm font-semibold">
+              Offline mode — runs on your device, slower on phones
             </span>
           )}
         </div>
         <p className="page-desc mt-3">
-          Automatically remove the background from any photo — JPG, PNG, WEBP
-          and more. Output is a lossless transparent PNG at the{" "}
+          Automatically remove the background from any photo — JPG, PNG, WEBP,
+          HEIC and more. Output is a lossless transparent PNG at the{" "}
           <strong>full original resolution</strong> — put a 4K photo in, get a 4K
-          cutout out. Runs fully in your browser, your images are never uploaded.
+          cutout out. Photos are processed and returned immediately, never
+          stored.
         </p>
       </div>
 
@@ -364,7 +387,8 @@ export default function RemoveBackground() {
               the moment it&apos;s ready.
             </p>
             <p className="text-gray-300 text-sm mt-1">
-              JPG, PNG, WEBP, BMP, GIF, AVIF, TIFF &middot; full resolution kept
+              JPG, PNG, WEBP, HEIC, BMP, GIF, AVIF, TIFF &middot; full resolution
+              kept
             </p>
             <input
               ref={inputRef}

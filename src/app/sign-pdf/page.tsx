@@ -268,7 +268,7 @@ export default function SignPDF() {
     const y = e.clientY - rect.top;
     const width = Math.min(180 / rect.width, 0.45);
     const height = Math.min(60 / rect.height, 0.2);
-    setSignatureAreas((prev) => [
+    setSignatureAreas((prev) => prev.length >= 50 ? prev : [
       ...prev,
       {
         page: currentPage,

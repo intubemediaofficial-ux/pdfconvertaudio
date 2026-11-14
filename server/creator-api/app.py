@@ -854,9 +854,11 @@ async def create_sign_request(
         raise HTTPException(400, "Please upload a PDF file.")
     try:
         parsed = json.loads(areas)
+        if len(parsed) > 50:
+            raise HTTPException(400, "You can mark at most 50 signature areas.")
         area_list = [
             {k: float(a[k]) for k in ("x", "y", "width", "height")} | {"page": int(a["page"])}
-            for a in parsed[:50]
+            for a in parsed
         ]
     except (ValueError, KeyError, TypeError):
         raise HTTPException(400, "Invalid signature areas.")

@@ -37,12 +37,15 @@ systemctl daemon-reload && systemctl enable --now bgremover
 curl localhost:8091/health   # {"status":"ok"}
 ```
 
-The model (~179 MB) downloads to `~/.u2net` on first start, which is why the
-unit sets `HOME=/root`.
+The model (~179 MB) downloads to `~/.rembg/models/` on first start, which is why
+the unit sets `HOME=/root`.
 
 ## Nginx
 
-Inside the site's `server {}` block:
+Inside the site's `server {}` block (the full live config is in
+`server/nginx/tools-bainslamusic.conf` — re-apply it if certbot or a server
+migration rewrites the site file, otherwise the page silently drops to the slow
+browser engine):
 
 ```nginx
 client_max_body_size 45m;

@@ -55,7 +55,6 @@ export default function SignPDF() {
   const [senderEmail, setSenderEmail] = useState("");
   const [requestMessage, setRequestMessage] = useState("");
   const [signingLink, setSigningLink] = useState("");
-  const [emailed, setEmailed] = useState(true);
   const [sendError, setSendError] = useState("");
   const [docTitle, setDocTitle] = useState("");
   const [signatureAreas, setSignatureAreas] = useState<SignatureArea[]>([]);
@@ -301,8 +300,7 @@ export default function SignPDF() {
       const res = await fetch("/api/creator/sign/requests", { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Could not send the request. Please try again.");
-      setSigningLink(data.link);
-      setEmailed(Boolean(data.emailed));
+      setSigningLink(data.link || "");
       setSendStatus("sent");
       setStep("send-confirm");
     } catch (err) {
@@ -624,13 +622,9 @@ export default function SignPDF() {
       {step === "send-confirm" && (
         <div className="text-center py-16 max-w-lg mx-auto">
           <div className="text-6xl mb-6">✅</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-3">Signature Request Sent!</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">Check your inbox to send it</h2>
           <p className="text-gray-500 text-lg mb-4">
-            {emailed ? (
-              <>An email has been sent to <strong>{recipientName}</strong> ({recipientEmail}) with a link to sign the document.</>
-            ) : (
-              <>We could not email {recipientEmail} right now. Share this link with <strong>{recipientName}</strong> yourself:</>
-            )}
+            We emailed a confirmation link to <strong>{senderEmail}</strong>. Click <strong>Confirm &amp; send</strong> in that email and <strong>{recipientName}</strong> ({recipientEmail}) gets the signing link right away.
           </p>
           {signingLink && (
             <div className="flex gap-2 mb-6">

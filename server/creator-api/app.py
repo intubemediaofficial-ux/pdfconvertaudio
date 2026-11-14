@@ -781,6 +781,9 @@ MAX_PDF = 20 * 1024 * 1024
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+_complete_lock = asyncio.Lock()
+
+
 def sign_path(rid: str) -> Path:
     if not re.fullmatch(r"[\w-]{16,40}", rid or ""):
         raise HTTPException(404, "Signing request not found.")
@@ -869,33 +872,55 @@ async def create_sign_request(
     p.mkdir(parents=True, exist_ok=False)
     (p / "original.pdf").write_bytes(data)
     meta = {
-        "id": rid, "status": "sent", "createdAt": int(time.time()),
+        "id": rid, "status": "awaiting_sender", "createdAt": int(time.time()), "confirmToken": secrets.token_urlsafe(18),
         "senderName": senderName, "senderEmail": senderEmail,
         "recipientName": recipientName, "recipientEmail": recipientEmail,
         "docTitle": docTitle, "message": clean(message, 1000), "areas": area_list,
         "senderIp": request.headers.get("x-real-ip", ""),
     }
     save_meta(p, meta)
-    link = f"{SITE_URL}/sign-request?id={rid}"
     e = html_lib.escape
-    lines = [f"Hi {e(recipientName)},", f"<b>{e(senderName)}</b> ({e(senderEmail)}) has requested your signature on <b>{e(docTitle)}</b>."]
-    if meta["message"]:
-        lines.append(f"Message: <i>{e(meta['message'])}</i>")
-    lines.append("Open the document, add your signature and submit. The signed PDF is emailed back automatically.")
+    confirm = f"{SITE_URL}/api/creator/sign/confirm/{rid}?t={meta['confirmToken']}"
     try:
-        await send_mail([{"email": recipientEmail, "name": recipientName}], f'{senderName} requested your signature on "{docTitle}"',
-                        mail_html("Signature request", lines, ("Review & Sign", link)), reply_to={"email": senderEmail, "name": senderName})
+        await send_mail([{"email": senderEmail, "name": senderName}], f'Confirm your signature request: "{docTitle}"',
+                        mail_html("Confirm and send", [f"Hi {e(senderName)},", f"Click the button to send <b>{e(docTitle)}</b> to <b>{e(recipientName)}</b> ({e(recipientEmail)}) for signature.",
+                                  "You will get the signed PDF by email as soon as they sign. If you did not request this, ignore this email."], ("Confirm & send", confirm)))
     except HTTPException:
-        meta["status"] = "email_failed"
+        raise HTTPException(502, "Could not email you the confirmation link. Check your email address and try again.")
+    return {"id": rid, "confirm": True}
+
+
+def page(title: str, text: str) -> Response:
+    body = (f'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>'
+            f'<div style="font-family:Arial,sans-serif;max-width:520px;margin:80px auto;padding:24px;text-align:center">'
+            f'<h1 style="color:#111827">{title}</h1><p style="color:#4b5563;font-size:17px;line-height:1.6">{text}</p>'
+            f'<p><a href="{SITE_URL}/sign-pdf" style="color:#dc2626;font-weight:bold">Back to Sign PDF</a></p></div>')
+    return Response(body, media_type="text/html")
+
+
+@app.get("/sign/confirm/{rid}")
+async def confirm_sign_request(rid: str, t: str = ""):
+    p = sign_path(rid)
+    e = html_lib.escape
+    async with _complete_lock:
+        meta = load_meta(p)
+        if not secrets.compare_digest(t, meta.get("confirmToken", "")):
+            return page("Invalid link", "This confirmation link is not valid.")
+        if meta["status"] != "awaiting_sender":
+            return page("Already sent ✅", f"{e(meta['recipientName'])} already has the signing link.")
+        link = f"{SITE_URL}/sign-request?id={rid}"
+        lines = [f"Hi {e(meta['recipientName'])},", f"<b>{e(meta['senderName'])}</b> ({e(meta['senderEmail'])}) has requested your signature on <b>{e(meta['docTitle'])}</b>."]
+        if meta["message"]:
+            lines.append(f"Message: <i>{e(meta['message'])}</i>")
+        lines.append("Open the document, add your signature and submit. The signed PDF is emailed back automatically.")
+        try:
+            await send_mail([{"email": meta["recipientEmail"], "name": meta["recipientName"]}], f'{meta["senderName"]} requested your signature on "{meta["docTitle"]}"',
+                            mail_html("Signature request", lines, ("Review & Sign", link)), reply_to={"email": meta["senderEmail"], "name": meta["senderName"]})
+        except HTTPException:
+            return page("Could not send", "The email service is busy. Please open this confirmation link again in a minute.")
+        meta.update({"status": "sent", "confirmedAt": int(time.time())})
         save_meta(p, meta)
-        return {"id": rid, "link": link, "emailed": False}
-    try:
-        await send_mail([{"email": senderEmail, "name": senderName}], f'Signature request sent: "{docTitle}"',
-                        mail_html("Your request was sent", [f"We emailed <b>{e(recipientName)}</b> ({e(recipientEmail)}) a link to sign <b>{e(docTitle)}</b>.",
-                                  "You will get the signed PDF by email as soon as they sign."], ("Open signing link", link)))
-    except HTTPException:
-        pass
-    return {"id": rid, "link": link, "emailed": True}
+    return page("Sent ✅", f"We emailed <b>{e(meta['recipientName'])}</b> ({e(meta['recipientEmail'])}) a link to sign <b>{e(meta['docTitle'])}</b>. You will get the signed PDF by email.")
 
 
 def public_meta(meta: dict) -> dict:
@@ -904,7 +929,10 @@ def public_meta(meta: dict) -> dict:
 
 @app.get("/sign/requests/{rid}")
 async def get_sign_request(rid: str):
-    return public_meta(load_meta(sign_path(rid)))
+    meta = load_meta(sign_path(rid))
+    if meta["status"] == "awaiting_sender":
+        raise HTTPException(403, "The sender has not confirmed this request yet.")
+    return public_meta(meta)
 
 
 @app.get("/sign/requests/{rid}/pdf")
@@ -920,9 +948,6 @@ async def get_sign_pdf(rid: str, signed: bool = False):
     return Response(f.read_bytes(), media_type="application/pdf", headers={"Content-Disposition": disp, "Cache-Control": "no-store"})
 
 
-_complete_lock = asyncio.Lock()
-
-
 @app.post("/sign/requests/{rid}/complete")
 async def complete_sign_request(request: Request, rid: str, pdf: UploadFile = File(...), signerName: str = Form(...), signerEmail: str = Form(...)):
     p = sign_path(rid)
@@ -936,6 +961,8 @@ async def complete_sign_request(request: Request, rid: str, pdf: UploadFile = Fi
         meta = load_meta(p)
         if meta["status"] == "signed":
             raise HTTPException(409, "This document has already been signed.")
+        if meta["status"] != "sent":
+            raise HTTPException(403, "The sender has not confirmed this request yet.")
         (p / "signed.pdf").write_bytes(data)
         meta.update({"status": "signed", "signedAt": int(time.time()), "signerName": signerName, "signerEmail": signerEmail,
                      "signerIp": request.headers.get("x-real-ip", "")})

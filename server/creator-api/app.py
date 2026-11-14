@@ -913,7 +913,9 @@ async def get_sign_pdf(rid: str, signed: bool = False):
         raise HTTPException(404, "Signed document is not ready yet.")
     meta = load_meta(p)
     name = re.sub(r"[^\w.-]+", "_", ("signed-" if signed else "") + meta["docTitle"])[:80] + ".pdf"
-    return Response(f.read_bytes(), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}"', "Cache-Control": "no-store"})
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name) or "document.pdf"
+    disp = f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
+    return Response(f.read_bytes(), media_type="application/pdf", headers={"Content-Disposition": disp, "Cache-Control": "no-store"})
 
 
 @app.post("/sign/requests/{rid}/complete")

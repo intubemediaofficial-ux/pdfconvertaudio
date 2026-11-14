@@ -109,16 +109,20 @@ export function loopBuffer(buf: AudioBuffer, opts: { times?: number; targetSec?:
   const sr = buf.sampleRate;
   const fade = Math.min(Math.floor((opts.crossfade ?? 0) * sr), Math.floor(buf.length / 3));
   const step = buf.length - fade;
-  const total = opts.targetSec ? Math.floor(opts.targetSec * sr) : step * (opts.times ?? 2) + fade;
+  const times = Math.max(1, opts.times ?? 2);
+  const total = opts.targetSec ? Math.floor(opts.targetSec * sr) : step * (times - 1) + buf.length;
+  const reps = opts.targetSec ? Math.ceil(total / step) : times;
   const out = audioCtx().createBuffer(buf.numberOfChannels, Math.max(1, total), sr);
   for (let c = 0; c < buf.numberOfChannels; c++) {
     const src = buf.getChannelData(c);
     const dst = out.getChannelData(c);
-    for (let pos = 0; pos < total; pos += step) {
+    for (let k = 0; k < reps; k++) {
+      const pos = k * step;
+      const hasNext = k < reps - 1 && pos + step < total;
       for (let i = 0; i < buf.length && pos + i < total; i++) {
         let g = 1;
-        if (fade && pos > 0 && i < fade) g = Math.sin((i / fade) * Math.PI / 2);
-        if (fade && i >= buf.length - fade && pos + step < total) g *= Math.cos(((i - (buf.length - fade)) / fade) * Math.PI / 2);
+        if (fade && k > 0 && i < fade) g = Math.sin((i / fade) * Math.PI / 2);
+        if (fade && hasNext && i >= buf.length - fade) g *= Math.cos(((i - (buf.length - fade)) / fade) * Math.PI / 2);
         dst[pos + i] += src[i] * g;
       }
     }

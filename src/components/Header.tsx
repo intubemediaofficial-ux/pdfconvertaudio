@@ -35,6 +35,9 @@ export default function Header() {
             <Link href="/remove-background" className="hover:text-emerald-500 transition">
               Background
             </Link>
+            <Link href="/creator-tools" className="hover:text-blue-600 transition">
+              Creator Tools
+            </Link>
             <Link href="/#all-tools" className="bg-red-500 text-white px-5 py-2 rounded-full hover:bg-red-600 transition text-sm">
               All Tools
             </Link>
@@ -57,6 +60,7 @@ export default function Header() {
         {menuOpen && (
           <div className="md:hidden pb-4 space-y-1">
             {[
+              { href: "/creator-tools", label: "Creator Tools (YouTube, Audio, Podcast)" },
               { href: "/merge-pdf", label: "Merge PDF" },
               { href: "/split-pdf", label: "Split PDF" },
               { href: "/compress-pdf", label: "Compress PDF" },

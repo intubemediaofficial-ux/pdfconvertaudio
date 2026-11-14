@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { tools, categories, type Category } from "@/lib/tools";
+import { creatorTools } from "@/lib/creator/registry";
 
 export default function Home() {
   const [activeCategory, setActiveCategory] = useState<Category>("All");
@@ -33,6 +34,20 @@ export default function Home() {
             </span>
           </div>
         </div>
+      </section>
+
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10">
+        <Link
+          href="/creator-tools"
+          className="tool-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-gradient-to-r from-blue-600 to-red-500 text-white p-6 sm:p-8"
+        >
+          <div>
+            <div className="text-sm font-bold uppercase tracking-wider opacity-90">New · {creatorTools.length} free tools</div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold mt-1">Creator Tools</h2>
+            <p className="opacity-90 mt-1">YouTube tags, titles, keywords, channel stats, thumbnail downloader, comment picker, audio cutter, pitch &amp; BPM changer, 8D audio and more.</p>
+          </div>
+          <span className="shrink-0 bg-white text-red-600 font-bold rounded-full px-6 py-3">Open Creator Tools →</span>
+        </Link>
       </section>
 
       {/* Category Filter */}

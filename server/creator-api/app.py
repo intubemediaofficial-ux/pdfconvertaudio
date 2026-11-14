@@ -478,6 +478,7 @@ async def comments(url: str, limit: int = 1000, replies: bool = True, order: str
     async def fetch_replies(parent: str, have: int):
         rows: list[dict] = []
         rtoken = None
+        complete = False
         for _ in range(5):
             params = {"part": "snippet", "parentId": parent, "maxResults": 100, "textFormat": "plainText"}
             if rtoken:
@@ -489,20 +490,29 @@ async def comments(url: str, limit: int = 1000, replies: bool = True, order: str
             rows.extend(map_comment(r, parent) for r in data.get("items", []))
             rtoken = data.get("nextPageToken")
             if not rtoken:
+                complete = True
                 break
-        return parent, have, rows
+        return parent, have, rows, complete
 
     extra = need_more_replies[:150]
+    if len(need_more_replies) > len(extra):
+        partial = True
     for i in range(0, len(extra), 10):
         if time.time() > deadline + 20:
             partial = True
             break
-        for parent, have, rows in await asyncio.gather(*[fetch_replies(p, h) for p, h in extra[i:i + 10]]):
+        for parent, have, rows, complete in await asyncio.gather(*[fetch_replies(p, h) for p, h in extra[i:i + 10]]):
+            if not complete:
+                partial = True
             if rows:
                 out[:] = [c for c in out if c["parentId"] != parent]
                 idx = next((k for k, c in enumerate(out) if c["id"] == parent), len(out) - 1)
                 out[idx + 1:idx + 1] = rows
-    v = await videos_by_ids([vid])
+    try:
+        v = await videos_by_ids([vid])
+    except HTTPException:
+        v = []
+        partial = True
     res = {"video": v[0] if v else {"id": vid}, "items": out, "threads": threads, "partial": partial}
     cache_set(key, res, 300)
     return res

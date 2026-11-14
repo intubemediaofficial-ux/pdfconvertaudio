@@ -83,8 +83,10 @@ async def yt(endpoint: str, **params):
     if not YT_KEYS:
         raise HTTPException(503, "YouTube data is not configured yet.")
     last = None
-    for _ in range(len(YT_KEYS)):
-        key = YT_KEYS[_key_index % len(YT_KEYS)]
+    start = _key_index
+    for attempt in range(len(YT_KEYS)):
+        idx = (start + attempt) % len(YT_KEYS)
+        key = YT_KEYS[idx]
         r = await client.get(f"{YT}/{endpoint}", params={**params, "key": key})
         if r.status_code == 200:
             return r.json()
@@ -95,7 +97,7 @@ async def yt(endpoint: str, **params):
         reason = (err.get("errors") or [{}])[0].get("reason", "")
         last = err.get("message") or r.text[:200]
         if reason in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"):
-            _key_index += 1
+            _key_index = idx + 1
             continue
         if r.status_code == 404 or reason in ("videoNotFound", "playlistNotFound", "channelNotFound"):
             raise HTTPException(404, "Not found on YouTube. Check the link.")

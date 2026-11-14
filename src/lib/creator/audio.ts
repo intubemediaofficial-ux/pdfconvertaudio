@@ -192,6 +192,7 @@ export function detectBPM(buf: AudioBuffer): { bpm: number; confidence: number; 
 }
 
 export function atempoChain(ratio: number) {
+  if (!Number.isFinite(ratio) || ratio <= 0) throw new Error("Speed must be greater than zero.");
   const parts: string[] = [];
   let r = ratio;
   while (r > 2) {

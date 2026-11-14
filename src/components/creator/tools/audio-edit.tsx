@@ -119,7 +119,7 @@ export function BpmChanger() {
         }
       }}
       onProcess={async (f, fmt) => {
-        if (!orig) throw new Error("Enter the original BPM.");
+        if (!(orig >= 20 && orig <= 300) || !(target >= 20 && target <= 300)) throw new Error("Enter BPM values between 20 and 300.");
         return processFile(f, atempoChain(target / orig), fmt);
       }}
     >

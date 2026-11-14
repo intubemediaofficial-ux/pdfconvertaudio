@@ -59,7 +59,8 @@ _hits: dict[str, deque] = defaultdict(deque)
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
     ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
-    limit = 20 if request.url.path.startswith("/ai/") else 90
+    path = request.url.path
+    limit = 20 if path.startswith("/ai/") else 6 if (path == "/sign/requests" and request.method == "POST") else 90
     bucket = _hits[ip + request.url.path[:4]]
     now = time.time()
     while bucket and bucket[0] < now - 60:
@@ -749,3 +750,194 @@ async def img(url: str, name: str = ""):
         safe = re.sub(r"[^\w.-]+", "_", name)[:100]
         headers["Content-Disposition"] = f'attachment; filename="{safe}"'
     return Response(r.content, media_type=ctype, headers=headers)
+
+
+# ---------------------------------------------------------------- signature requests
+# Documents are kept on disk (never auto-deleted) under DATA_DIR/sign/<id>/.
+
+import base64
+import html as html_lib
+import secrets
+
+from fastapi import File, Form, UploadFile
+
+BREVO_KEY = os.environ.get("BREVO_API_KEY", "").strip()
+BREVO_FROM = os.environ.get("BREVO_FROM", "").strip()
+SITE_URL = os.environ.get("SITE_URL", "https://tools.bainslamusic.com").rstrip("/")
+SIGN_DIR = DATA_DIR / "sign"
+MAX_PDF = 20 * 1024 * 1024
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def sign_path(rid: str) -> Path:
+    if not re.fullmatch(r"[\w-]{16,40}", rid or ""):
+        raise HTTPException(404, "Signing request not found.")
+    p = SIGN_DIR / rid
+    if not (p / "meta.json").exists():
+        raise HTTPException(404, "Signing request not found or link is wrong.")
+    return p
+
+
+def load_meta(p: Path) -> dict:
+    return json.loads((p / "meta.json").read_text())
+
+
+def save_meta(p: Path, meta: dict):
+    tmp = p / "meta.json.tmp"
+    tmp.write_text(json.dumps(meta, indent=1))
+    tmp.replace(p / "meta.json")
+
+
+async def send_mail(to: list[dict], subject: str, body: str, reply_to: dict | None = None, attachments: list[dict] | None = None):
+    if not BREVO_KEY or not BREVO_FROM:
+        raise HTTPException(503, "Email is not configured on the server.")
+    payload = {"sender": {"name": "Bainsla Tools e-Sign", "email": BREVO_FROM}, "to": to, "subject": subject, "htmlContent": body}
+    if reply_to:
+        payload["replyTo"] = reply_to
+    if attachments:
+        payload["attachment"] = attachments
+    r = await client.post("https://api.brevo.com/v3/smtp/email", headers={"api-key": BREVO_KEY, "accept": "application/json"}, json=payload, timeout=60)
+    if r.status_code >= 300:
+        raise HTTPException(502, "Could not send the email right now. Please try again.")
+    return r.json().get("messageId", "")
+
+
+def mail_html(title: str, lines: list[str], button: tuple[str, str] | None = None) -> str:
+    btn = (f'<p style="text-align:center;margin:28px 0"><a href="{button[1]}" style="background:#dc2626;color:#fff;padding:14px 30px;'
+           f'border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">{button[0]}</a></p>') if button else ""
+    body = "".join(f'<p style="color:#374151;font-size:15px;line-height:1.6">{l}</p>' for l in lines)
+    return (f'<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">'
+            f'<h2 style="color:#111827">{title}</h2>{body}{btn}'
+            f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0"/>'
+            f'<p style="color:#9ca3af;font-size:12px;text-align:center">Sent via tools.bainslamusic.com e-Sign</p></div>')
+
+
+def clean(s: str, n=120) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip()[:n]
+
+
+@app.post("/sign/requests")
+async def create_sign_request(
+    request: Request,
+    pdf: UploadFile = File(...),
+    senderName: str = Form(...),
+    senderEmail: str = Form(...),
+    recipientName: str = Form(...),
+    recipientEmail: str = Form(...),
+    docTitle: str = Form(""),
+    message: str = Form(""),
+    areas: str = Form("[]"),
+):
+    senderName, recipientName, docTitle = clean(senderName), clean(recipientName), clean(docTitle) or "Document"
+    senderEmail, recipientEmail = clean(senderEmail).lower(), clean(recipientEmail).lower()
+    if not senderName or not recipientName or not EMAIL_RE.match(senderEmail) or not EMAIL_RE.match(recipientEmail):
+        raise HTTPException(400, "Please enter valid names and email addresses.")
+    data = await pdf.read(MAX_PDF + 1)
+    if len(data) > MAX_PDF:
+        raise HTTPException(413, "PDF is too large (max 20 MB).")
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(400, "Please upload a PDF file.")
+    try:
+        parsed = json.loads(areas)
+        area_list = [
+            {k: float(a[k]) for k in ("x", "y", "width", "height")} | {"page": int(a["page"])}
+            for a in parsed[:50]
+        ]
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(400, "Invalid signature areas.")
+    if not area_list:
+        raise HTTPException(400, "Mark at least one signature area.")
+    rid = secrets.token_urlsafe(18)
+    p = SIGN_DIR / rid
+    p.mkdir(parents=True, exist_ok=False)
+    (p / "original.pdf").write_bytes(data)
+    meta = {
+        "id": rid, "status": "sent", "createdAt": int(time.time()),
+        "senderName": senderName, "senderEmail": senderEmail,
+        "recipientName": recipientName, "recipientEmail": recipientEmail,
+        "docTitle": docTitle, "message": clean(message, 1000), "areas": area_list,
+        "senderIp": request.headers.get("x-real-ip", ""),
+    }
+    save_meta(p, meta)
+    link = f"{SITE_URL}/sign-request?id={rid}"
+    e = html_lib.escape
+    lines = [f"Hi {e(recipientName)},", f"<b>{e(senderName)}</b> ({e(senderEmail)}) has requested your signature on <b>{e(docTitle)}</b>."]
+    if meta["message"]:
+        lines.append(f"Message: <i>{e(meta['message'])}</i>")
+    lines.append("Open the document, add your signature and submit. The signed PDF is emailed back automatically.")
+    try:
+        await send_mail([{"email": recipientEmail, "name": recipientName}], f'{senderName} requested your signature on "{docTitle}"',
+                        mail_html("Signature request", lines, ("Review & Sign", link)), reply_to={"email": senderEmail, "name": senderName})
+    except HTTPException:
+        meta["status"] = "email_failed"
+        save_meta(p, meta)
+        return {"id": rid, "link": link, "emailed": False}
+    try:
+        await send_mail([{"email": senderEmail, "name": senderName}], f'Signature request sent: "{docTitle}"',
+                        mail_html("Your request was sent", [f"We emailed <b>{e(recipientName)}</b> ({e(recipientEmail)}) a link to sign <b>{e(docTitle)}</b>.",
+                                  "You will get the signed PDF by email as soon as they sign."], ("Open signing link", link)))
+    except HTTPException:
+        pass
+    return {"id": rid, "link": link, "emailed": True}
+
+
+def public_meta(meta: dict) -> dict:
+    return {k: meta.get(k) for k in ("id", "status", "senderName", "recipientName", "docTitle", "message", "areas", "createdAt", "signedAt", "signerName")}
+
+
+@app.get("/sign/requests/{rid}")
+async def get_sign_request(rid: str):
+    return public_meta(load_meta(sign_path(rid)))
+
+
+@app.get("/sign/requests/{rid}/pdf")
+async def get_sign_pdf(rid: str, signed: bool = False):
+    p = sign_path(rid)
+    f = p / ("signed.pdf" if signed else "original.pdf")
+    if not f.exists():
+        raise HTTPException(404, "Signed document is not ready yet.")
+    meta = load_meta(p)
+    name = re.sub(r"[^\w.-]+", "_", ("signed-" if signed else "") + meta["docTitle"])[:80] + ".pdf"
+    return Response(f.read_bytes(), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}"', "Cache-Control": "no-store"})
+
+
+@app.post("/sign/requests/{rid}/complete")
+async def complete_sign_request(request: Request, rid: str, pdf: UploadFile = File(...), signerName: str = Form(...), signerEmail: str = Form(...)):
+    p = sign_path(rid)
+    meta = load_meta(p)
+    if meta["status"] == "signed":
+        raise HTTPException(409, "This document has already been signed.")
+    signerName, signerEmail = clean(signerName), clean(signerEmail).lower()
+    if not signerName or not EMAIL_RE.match(signerEmail):
+        raise HTTPException(400, "Please enter your name and a valid email.")
+    data = await pdf.read(MAX_PDF * 2 + 1)
+    if len(data) > MAX_PDF * 2 or not data.startswith(b"%PDF"):
+        raise HTTPException(400, "Signed file is not a valid PDF.")
+    (p / "signed.pdf").write_bytes(data)
+    meta.update({"status": "signed", "signedAt": int(time.time()), "signerName": signerName, "signerEmail": signerEmail,
+                 "signerIp": request.headers.get("x-real-ip", "")})
+    save_meta(p, meta)
+    e = html_lib.escape
+    fname = re.sub(r"[^\w.-]+", "_", "signed-" + meta["docTitle"])[:80] + ".pdf"
+    dl = f"{SITE_URL}/api/creator/sign/requests/{rid}/pdf?signed=true"
+    att = [{"content": base64.b64encode(data).decode(), "name": fname}] if len(data) <= 10 * 1024 * 1024 else None
+    when = time.strftime("%d %b %Y, %H:%M", time.localtime(meta["signedAt"]))
+    sent = {"sender": False, "signer": False}
+    try:
+        await send_mail([{"email": meta["senderEmail"], "name": meta["senderName"]}], f'Signed: "{meta["docTitle"]}" by {signerName}',
+                        mail_html("Your document has been signed ✅", [f"<b>{e(signerName)}</b> ({e(signerEmail)}) signed <b>{e(meta['docTitle'])}</b> on {when}.",
+                                  "The signed PDF is attached." if att else "Download the signed PDF with the button below."], ("Download signed PDF", dl)),
+                        reply_to={"email": signerEmail, "name": signerName}, attachments=att)
+        sent["sender"] = True
+    except HTTPException:
+        pass
+    try:
+        await send_mail([{"email": signerEmail, "name": signerName}], f'Your signed copy: "{meta["docTitle"]}"',
+                        mail_html("Thanks for signing", [f"Here is your copy of <b>{e(meta['docTitle'])}</b>, signed on {when}. A copy was sent to {e(meta['senderName'])}."], ("Download signed PDF", dl)),
+                        attachments=att)
+        sent["signer"] = True
+    except HTTPException:
+        pass
+    meta["emailed"] = sent
+    save_meta(p, meta)
+    return {"ok": True, "emailed": sent, "download": dl}

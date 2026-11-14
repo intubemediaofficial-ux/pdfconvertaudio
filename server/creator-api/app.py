@@ -781,7 +781,7 @@ MAX_PDF = 20 * 1024 * 1024
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-_complete_lock = asyncio.Lock()
+_sign_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def sign_path(rid: str) -> Path:
@@ -902,7 +902,7 @@ def page(title: str, text: str) -> Response:
 async def confirm_sign_request(rid: str, t: str = ""):
     p = sign_path(rid)
     e = html_lib.escape
-    async with _complete_lock:
+    async with _sign_locks[rid]:
         meta = load_meta(p)
         if not secrets.compare_digest(t, meta.get("confirmToken", "")):
             return page("Invalid link", "This confirmation link is not valid.")
@@ -957,7 +957,7 @@ async def complete_sign_request(request: Request, rid: str, pdf: UploadFile = Fi
     data = await pdf.read(MAX_PDF * 2 + 1)
     if len(data) > MAX_PDF * 2 or not data.startswith(b"%PDF"):
         raise HTTPException(400, "Signed file is not a valid PDF.")
-    async with _complete_lock:
+    async with _sign_locks[rid]:
         meta = load_meta(p)
         if meta["status"] == "signed":
             raise HTTPException(409, "This document has already been signed.")

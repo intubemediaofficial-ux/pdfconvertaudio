@@ -470,6 +470,7 @@ export function SplitAudio() {
   const [secs, setSecs] = useState(60);
   const [fmt, setFmt] = useState<OutFormat>("mp3");
   const [out, setOut] = useState<Blob[]>([]);
+  const [outCuts, setOutCuts] = useState<[number, number][]>([]);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -478,8 +479,9 @@ export function SplitAudio() {
     const len = mode === "parts" ? dur / parts : secs;
     const r: [number, number][] = [];
     for (let s = 0; s < dur - 0.05; s += len) r.push([s, Math.min(dur, s + len)]);
-    return r.slice(0, 200);
+    return r;
   })();
+  const tooMany = cuts.length > 200;
   const base = safeName((file?.name || "audio").replace(/\.[^.]+$/, ""));
   const run = async () => {
     if (!file) return;
@@ -487,6 +489,7 @@ export function SplitAudio() {
     setErr(null);
     setOut([]);
     setDone(0);
+    setOutCuts(cuts);
     try {
       setOut(await ffmpegMulti(file, cuts.map(([s, e], i) => ({ args: ["-ss", s.toFixed(3), "-t", (e - s).toFixed(3), "-i", "input", "-vn", ...codecArgs(fmt)], out: `part${i + 1}.${fmt}` })), setDone));
     } catch {
@@ -505,9 +508,10 @@ export function SplitAudio() {
           </div>
           {mode === "parts" ? <Range label="Number of parts" value={parts} onChange={setParts} min={2} max={50} /> : <Range label="Length of each piece" value={secs} onChange={setSecs} min={5} max={1800} step={5} suffix=" s" />}
           <p className="text-sm text-gray-500">{cuts.length} pieces of about {cuts.length ? fmtDuration(cuts[0][1] - cuts[0][0]) : "—"}</p>
+          {tooMany && <p className="text-sm text-amber-700">That is more than 200 pieces. Choose a longer piece length.</p>}
           <div className="flex flex-wrap items-center justify-between gap-4">
             <FormatPicker value={fmt} onChange={setFmt} />
-            <button type="button" disabled={busy || !cuts.length} onClick={run} className="btn-primary disabled:opacity-50">{busy ? `Splitting ${done}/${cuts.length}…` : "Split audio"}</button>
+            <button type="button" disabled={busy || !cuts.length || tooMany} onClick={run} className="btn-primary disabled:opacity-50">{busy ? `Splitting ${done}/${cuts.length}…` : "Split audio"}</button>
           </div>
           <ErrorBox error={err} />
           {out.length > 0 && (
@@ -518,7 +522,7 @@ export function SplitAudio() {
               </div>
               {out.map((b, i) => (
                 <div key={i} className="file-card flex flex-wrap items-center justify-between gap-3">
-                  <span className="file-name">Part {i + 1} · {fmtDuration(cuts[i][0])}–{fmtDuration(cuts[i][1])}</span>
+                  <span className="file-name">Part {i + 1} · {fmtDuration(outCuts[i][0])}–{fmtDuration(outCuts[i][1])}</span>
                   <button type="button" onClick={() => downloadBlob(b, `${base}-part${i + 1}.${fmt}`)} className="btn-success !px-4 !py-1.5 !text-sm ml-auto">⬇</button>
                 </div>
               ))}

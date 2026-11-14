@@ -130,7 +130,8 @@ export function CommentPicker() {
       const arr = [...pool];
       const out: YTComment[] = [];
       const rnd = new Uint32Array(1);
-      while (out.length < Math.min(opt.count, arr.length)) {
+      const n = Math.min(opt.count, arr.length);
+      while (out.length < n) {
         crypto.getRandomValues(rnd);
         out.push(arr.splice(rnd[0] % arr.length, 1)[0]);
       }

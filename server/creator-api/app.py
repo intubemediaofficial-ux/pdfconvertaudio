@@ -808,7 +808,10 @@ async def send_mail(to: list[dict], subject: str, body: str, reply_to: dict | No
         payload["replyTo"] = reply_to
     if attachments:
         payload["attachment"] = attachments
-    r = await client.post("https://api.brevo.com/v3/smtp/email", headers={"api-key": BREVO_KEY, "accept": "application/json"}, json=payload, timeout=60)
+    try:
+        r = await client.post("https://api.brevo.com/v3/smtp/email", headers={"api-key": BREVO_KEY, "accept": "application/json"}, json=payload, timeout=60)
+    except httpx.HTTPError:
+        raise HTTPException(502, "Could not send the email right now. Please try again.")
     if r.status_code >= 300:
         raise HTTPException(502, "Could not send the email right now. Please try again.")
     return r.json().get("messageId", "")

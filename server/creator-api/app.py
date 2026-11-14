@@ -920,22 +920,26 @@ async def get_sign_pdf(rid: str, signed: bool = False):
     return Response(f.read_bytes(), media_type="application/pdf", headers={"Content-Disposition": disp, "Cache-Control": "no-store"})
 
 
+_complete_lock = asyncio.Lock()
+
+
 @app.post("/sign/requests/{rid}/complete")
 async def complete_sign_request(request: Request, rid: str, pdf: UploadFile = File(...), signerName: str = Form(...), signerEmail: str = Form(...)):
     p = sign_path(rid)
-    meta = load_meta(p)
-    if meta["status"] == "signed":
-        raise HTTPException(409, "This document has already been signed.")
     signerName, signerEmail = clean(signerName), clean(signerEmail).lower()
     if not signerName or not EMAIL_RE.match(signerEmail):
         raise HTTPException(400, "Please enter your name and a valid email.")
     data = await pdf.read(MAX_PDF * 2 + 1)
     if len(data) > MAX_PDF * 2 or not data.startswith(b"%PDF"):
         raise HTTPException(400, "Signed file is not a valid PDF.")
-    (p / "signed.pdf").write_bytes(data)
-    meta.update({"status": "signed", "signedAt": int(time.time()), "signerName": signerName, "signerEmail": signerEmail,
-                 "signerIp": request.headers.get("x-real-ip", "")})
-    save_meta(p, meta)
+    async with _complete_lock:
+        meta = load_meta(p)
+        if meta["status"] == "signed":
+            raise HTTPException(409, "This document has already been signed.")
+        (p / "signed.pdf").write_bytes(data)
+        meta.update({"status": "signed", "signedAt": int(time.time()), "signerName": signerName, "signerEmail": signerEmail,
+                     "signerIp": request.headers.get("x-real-ip", "")})
+        save_meta(p, meta)
     e = html_lib.escape
     fname = re.sub(r"[^\w.-]+", "_", "signed-" + meta["docTitle"])[:80] + ".pdf"
     dl = f"{SITE_URL}/api/creator/sign/requests/{rid}/pdf?signed=true"

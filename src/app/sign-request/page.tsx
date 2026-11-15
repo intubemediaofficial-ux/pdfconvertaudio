@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-interface PlacedSignature {
+interface Box {
   page: number;
   x: number;
   y: number;
@@ -11,57 +11,29 @@ interface PlacedSignature {
   height: number;
 }
 
+const API = "/api/creator/sign/requests";
+
 export default function SignRequest() {
+  const [requestId, setRequestId] = useState("");
   const [pdfBytes, setPdfBytes] = useState<ArrayBuffer | null>(null);
   const [pageImages, setPageImages] = useState<string[]>([]);
-  const [signatureAreas, setSignatureAreas] = useState<{ page: number; x: number; y: number; width: number; height: number }[]>([]);
+  const [signatureAreas, setSignatureAreas] = useState<Box[]>([]);
   const [signatureData, setSignatureData] = useState<string | null>(null);
   const [signerName, setSignerName] = useState("");
   const [signerEmail, setSignerEmail] = useState("");
   const [signMode, setSignMode] = useState<"draw" | "type">("draw");
   const [typedName, setTypedName] = useState("");
-  const [step, setStep] = useState<"loading" | "info" | "signature" | "place" | "done" | "error">("loading");
+  const [step, setStep] = useState<"loading" | "info" | "signature" | "place" | "done" | "error" | "already">("loading");
   const [currentPage, setCurrentPage] = useState(0);
-  const [placedSignatures, setPlacedSignatures] = useState<PlacedSignature[]>([]);
+  const [placedSignatures, setPlacedSignatures] = useState<Box[]>([]);
   const [processing, setProcessing] = useState(false);
   const [senderName, setSenderName] = useState("");
   const [docTitle, setDocTitle] = useState("");
+  const [message, setMessage] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [result, setResult] = useState<{ download: string; emailed: { sender: boolean; signer: boolean } } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const params = new URLSearchParams(window.location.search);
-      const data = params.get("data");
-
-      if (!data) {
-        setErrorMsg("No signing request data found. Please use the link sent to your email.");
-        setStep("error");
-        return;
-      }
-
-      try {
-        const decoded = JSON.parse(atob(data));
-        setSenderName(decoded.senderName || "Someone");
-        setDocTitle(decoded.docTitle || "Document");
-        setSignatureAreas(decoded.signatureAreas || []);
-
-      if (decoded.pdfBase64) {
-        const binary = atob(decoded.pdfBase64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        setPdfBytes(bytes.buffer as ArrayBuffer);
-        loadPdfPages(bytes.buffer as ArrayBuffer);
-      }
-      setStep("info");
-    } catch {
-      setErrorMsg("Invalid signing request. The link may be corrupted or expired.");
-      setStep("error");
-    }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
 
   const loadPdfPages = async (ab: ArrayBuffer) => {
     const pdfjsLib = await import("pdfjs-dist");
@@ -80,6 +52,44 @@ export default function SignRequest() {
     }
     setPageImages(imgs);
   };
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("id") || "";
+    const fail = (msg: string) => {
+      setErrorMsg(msg);
+      setStep("error");
+    };
+    if (!id) {
+      Promise.resolve().then(() => fail("No signing request found. Please use the link from your email."));
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch(`${API}/${encodeURIComponent(id)}`);
+        const meta = await res.json().catch(() => ({}));
+        if (!res.ok) return fail(meta.detail || "This signing link is invalid.");
+        setRequestId(id);
+        setSenderName(meta.senderName || "Someone");
+        setDocTitle(meta.docTitle || "Document");
+        setMessage(meta.message || "");
+        setSignatureAreas(meta.areas || []);
+        setSignerName(meta.recipientName || "");
+        if (meta.status === "signed") {
+          setResult({ download: `${API}/${id}/pdf?signed=true`, emailed: { sender: true, signer: true } });
+          setStep("already");
+          return;
+        }
+        const pdfRes = await fetch(`${API}/${encodeURIComponent(id)}/pdf`);
+        if (!pdfRes.ok) return fail("Could not load the document.");
+        const ab = await pdfRes.arrayBuffer();
+        setPdfBytes(ab);
+        await loadPdfPages(ab.slice(0));
+        setStep("info");
+      } catch {
+        fail("Could not load the signing request. Check your internet and try again.");
+      }
+    })();
+  }, []);
 
   const startDrawing = () => {
     const canvas = canvasRef.current;
@@ -149,60 +159,58 @@ export default function SignRequest() {
 
   const placeSignature = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setPlacedSignatures((prev) => [
-      ...prev,
-      { page: currentPage, x, y, width: 150, height: 50 },
-    ]);
+    const fx = (e.clientX - rect.left) / rect.width;
+    const fy = (e.clientY - rect.top) / rect.height;
+    const area = signatureAreas.find((a) => a.page === currentPage && fx >= a.x && fx <= a.x + a.width && fy >= a.y && fy <= a.y + a.height);
+    const width = Math.min(150 / rect.width, 0.45);
+    const height = Math.min(50 / rect.height, 0.2);
+    const box = area ? { ...area } : { page: currentPage, x: Math.min(fx, 1 - width), y: Math.min(fy, 1 - height), width, height };
+    setPlacedSignatures((prev) => [...prev, box]);
   };
 
-  const applyAndDownload = async () => {
+  const signAll = () => {
+    setPlacedSignatures(signatureAreas.map((a) => ({ ...a })));
+  };
+
+  const applyAndSubmit = async () => {
     if (!pdfBytes || !signatureData || placedSignatures.length === 0) return;
     setProcessing(true);
     try {
       const pdf = await PDFDocument.load(pdfBytes);
       const pages = pdf.getPages();
       const font = await pdf.embedFont(StandardFonts.Helvetica);
-
+      const sigBytes = await fetch(signatureData).then((r) => r.arrayBuffer());
+      const sigImage = await pdf.embedPng(new Uint8Array(sigBytes));
       for (const sig of placedSignatures) {
         const page = pages[sig.page];
-        const { height: pageHeight } = page.getSize();
-        const tempImg = new Image();
-        tempImg.src = pageImages[sig.page];
-        await new Promise((r) => (tempImg.onload = r));
-        const scaleX = page.getWidth() / tempImg.width;
-        const scaleY = pageHeight / tempImg.height;
-
-        const sigBytes = await fetch(signatureData).then((r) => r.arrayBuffer());
-        const sigImage = await pdf.embedPng(new Uint8Array(sigBytes));
+        const { width: pw, height: ph } = page.getSize();
+        const boxW = sig.width * pw, boxH = sig.height * ph;
+        const scale = Math.min(boxW / sigImage.width, boxH / sigImage.height);
+        const w = sigImage.width * scale, h = sigImage.height * scale;
         page.drawImage(sigImage, {
-          x: sig.x * scaleX,
-          y: pageHeight - (sig.y + sig.height) * scaleY,
-          width: sig.width * scaleX,
-          height: sig.height * scaleY,
+          x: sig.x * pw + (boxW - w) / 2,
+          y: ph - sig.y * ph - boxH + (boxH - h) / 2,
+          width: w,
+          height: h,
         });
       }
-
-      // Add signer info at bottom of last page
       const lastPage = pages[pages.length - 1];
-      const { height: lh } = lastPage.getSize();
-      lastPage.drawText(`Signed by: ${signerName} (${signerEmail}) on ${new Date().toLocaleDateString("en-GB")}`, {
-        x: 50,
-        y: 30,
-        size: 9,
+      lastPage.drawText(`Signed electronically by ${signerName} (${signerEmail}) on ${new Date().toLocaleString("en-GB")} · tools.bainslamusic.com`, {
+        x: 30,
+        y: 18,
+        size: 8,
         font,
         color: rgb(0.4, 0.4, 0.4),
       });
-
       const bytes = await pdf.save();
-      const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `signed-${docTitle || "document"}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const form = new FormData();
+      form.append("pdf", new Blob([bytes.slice().buffer as ArrayBuffer], { type: "application/pdf" }), "signed.pdf");
+      form.append("signerName", signerName);
+      form.append("signerEmail", signerEmail);
+      const res = await fetch(`${API}/${encodeURIComponent(requestId)}/complete`, { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Could not submit the signed document.");
+      setResult({ download: data.download, emailed: data.emailed });
       setStep("done");
     } catch (err) {
       alert("Error: " + (err instanceof Error ? err.message : "Unknown error"));
@@ -237,6 +245,7 @@ export default function SignRequest() {
         <p className="page-desc">
           <strong>{senderName}</strong> has requested your signature on &quot;{docTitle}&quot;
         </p>
+        {message && <p className="mt-3 inline-block bg-gray-50 border rounded-xl px-4 py-2 text-gray-600 italic">&ldquo;{message}&rdquo;</p>}
       </div>
 
       {step === "info" && (
@@ -319,7 +328,10 @@ export default function SignRequest() {
         <div>
           <div className="bg-white border-2 border-gray-100 rounded-2xl p-4 mb-6 shadow-sm">
             <div className="flex items-center gap-4">
-              <span className="text-base font-semibold text-gray-700">Click on the document to place your signature</span>
+              <span className="text-base font-semibold text-gray-700">Tap a blue &quot;Sign Here&quot; box (or anywhere) to place your signature</span>
+              {signatureAreas.length > 0 && (
+                <button onClick={signAll} className="text-sm font-semibold text-blue-600 hover:underline">Sign all {signatureAreas.length} boxes</button>
+              )}
               <div className="ml-auto">
                 <img src={signatureData!} alt="Your signature" className="h-10 border rounded-lg p-1" />
               </div>
@@ -345,7 +357,7 @@ export default function SignRequest() {
               .filter((a) => a.page === currentPage)
               .map((area, i) => (
                 <div key={`area-${i}`} className="absolute border-2 border-dashed border-blue-400 bg-blue-50/30 rounded-lg flex items-center justify-center"
-                  style={{ left: area.x, top: area.y, width: area.width, height: area.height }}>
+                  style={{ left: `${area.x * 100}%`, top: `${area.y * 100}%`, width: `${area.width * 100}%`, height: `${area.height * 100}%` }}>
                   <span className="text-xs text-blue-500 font-semibold">Sign Here</span>
                 </div>
               ))}
@@ -354,9 +366,9 @@ export default function SignRequest() {
             {placedSignatures
               .filter((s) => s.page === currentPage)
               .map((sig, i) => (
-                <div key={i} className="absolute group" style={{ left: sig.x, top: sig.y, width: sig.width, height: sig.height }}>
+                <div key={i} className="absolute group" style={{ left: `${sig.x * 100}%`, top: `${sig.y * 100}%`, width: `${sig.width * 100}%`, height: `${sig.height * 100}%` }}>
                   <img src={signatureData!} alt="sig" className="w-full h-full object-contain" />
-                  <button onClick={(e) => { e.stopPropagation(); setPlacedSignatures((prev) => prev.filter((_, idx) => idx !== i)); }}
+                  <button onClick={(e) => { e.stopPropagation(); setPlacedSignatures((prev) => prev.filter((p) => p !== sig)); }}
                     className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold opacity-0 group-hover:opacity-100 transition shadow">
                     x
                   </button>
@@ -365,20 +377,24 @@ export default function SignRequest() {
           </div>
 
           <div className="text-center">
-            <button onClick={applyAndDownload} disabled={processing || placedSignatures.length === 0} className="btn-success disabled:opacity-50">
-              {processing ? "Signing..." : `Sign & Download (${placedSignatures.length} signature(s))`}
+            <button onClick={applyAndSubmit} disabled={processing || placedSignatures.length === 0} className="btn-success disabled:opacity-50">
+              {processing ? "Submitting..." : `Finish & Send (${placedSignatures.length} signature(s))`}
             </button>
           </div>
         </div>
       )}
 
-      {step === "done" && (
-        <div className="text-center py-16">
+      {(step === "done" || step === "already") && result && (
+        <div className="text-center py-16 max-w-lg mx-auto">
           <div className="text-6xl mb-6">✅</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-3">Document Signed Successfully!</h2>
-          <p className="text-gray-500 text-lg mb-6">
-            The signed PDF has been downloaded. You can send it back to <strong>{senderName}</strong>.
-          </p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">{step === "done" ? "Document Signed Successfully!" : "This document is already signed"}</h2>
+          {step === "done" && (
+            <p className="text-gray-500 text-lg mb-6">
+              {result.emailed.sender ? <>The signed PDF was emailed to <strong>{senderName}</strong>.</> : <>The signed PDF is saved. Please download it and send it to <strong>{senderName}</strong>.</>}
+              {result.emailed.signer && <> A copy was sent to {signerEmail}.</>}
+            </p>
+          )}
+          <a href={result.download} target="_blank" rel="noreferrer" className="btn-primary">Download signed PDF</a>
         </div>
       )}
     </div>

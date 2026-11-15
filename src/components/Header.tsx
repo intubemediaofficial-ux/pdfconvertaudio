@@ -29,11 +29,14 @@ export default function Header() {
             <Link href="/edit-pdf" className="hover:text-red-500 transition">
               Edit
             </Link>
-            <Link href="/audio-converter" className="hover:text-purple-500 transition">
+            <Link href="/audio-tools" className="hover:text-purple-500 transition">
               Audio
             </Link>
             <Link href="/remove-background" className="hover:text-emerald-500 transition">
               Background
+            </Link>
+            <Link href="/creator-tools" className="hover:text-blue-600 transition">
+              Creator Tools
             </Link>
             <Link href="/#all-tools" className="bg-red-500 text-white px-5 py-2 rounded-full hover:bg-red-600 transition text-sm">
               All Tools
@@ -57,6 +60,7 @@ export default function Header() {
         {menuOpen && (
           <div className="md:hidden pb-4 space-y-1">
             {[
+              { href: "/creator-tools", label: "Creator Tools (YouTube, Audio, Podcast)" },
               { href: "/merge-pdf", label: "Merge PDF" },
               { href: "/split-pdf", label: "Split PDF" },
               { href: "/compress-pdf", label: "Compress PDF" },
@@ -65,6 +69,7 @@ export default function Header() {
               { href: "/rotate-pdf", label: "Rotate PDF" },
               { href: "/pdf-to-jpg", label: "PDF to JPG" },
               { href: "/remove-background", label: "Remove Background" },
+              { href: "/audio-tools", label: "Audio Tools (all)" },
               { href: "/audio-converter", label: "Audio Converter" },
               { href: "/mp4-to-mp3", label: "MP4 to MP3" },
               { href: "/mp3-to-wav", label: "MP3 to WAV" },

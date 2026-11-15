@@ -402,14 +402,14 @@ export default function RemoveBackground() {
         </div>
       ) : (
         <div className="max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-gray-600 font-semibold">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
+            <div className="text-gray-600 font-semibold whitespace-nowrap">
               {items.length} image{items.length > 1 ? "s" : ""}
               {doneCount > 0 && (
                 <span className="text-green-600"> · {doneCount} done</span>
               )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 whitespace-nowrap">
               {doneCount > 0 && !processing && (
                 <button
                   onClick={downloadAll}
@@ -447,9 +447,9 @@ export default function RemoveBackground() {
             {items.map((it) => (
               <div
                 key={it.id}
-                className="file-card flex items-center justify-between gap-4"
+                className="file-card flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 sm:gap-4"
               >
-                <div className="flex items-center gap-4 min-w-0 flex-1">
+                <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 basis-full sm:basis-auto">
                   {/* Original */}
                   <img
                     src={it.originalUrl}
@@ -478,9 +478,9 @@ export default function RemoveBackground() {
                       </div>
                     </>
                   )}
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="file-name truncate">{it.file.name}</div>
-                    <div className="file-size">
+                    <div className="file-size break-words">
                       {formatSize(it.file.size)}
                       {it.status === "done" && it.width && it.height && (
                         <span className="text-green-600">
@@ -500,7 +500,7 @@ export default function RemoveBackground() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-3 shrink-0 ml-auto">
                   {it.status === "pending" && (
                     <span className="text-gray-400 text-sm">Waiting</span>
                   )}

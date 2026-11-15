@@ -8,10 +8,14 @@ import { creatorTools } from "@/lib/creator/registry";
 export default function Home() {
   const [activeCategory, setActiveCategory] = useState<Category>("All");
 
+  const audioExtras = creatorTools
+    .filter((t) => t.category === "Audio & Sound Tools")
+    .map((t) => ({ id: t.slug, name: t.name, description: t.description, href: `/creator-tools/${t.slug}`, icon: t.icon, color: "bg-purple-50 border-purple-200", category: "Audio Converter" }));
+  const allTools = [...tools, ...audioExtras];
   const filteredTools =
     activeCategory === "All"
-      ? tools
-      : tools.filter((t) => t.category === activeCategory);
+      ? allTools
+      : allTools.filter((t) => t.category === activeCategory);
 
   return (
     <div>

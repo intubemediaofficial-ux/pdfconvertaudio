@@ -29,7 +29,7 @@ export default function Header() {
             <Link href="/edit-pdf" className="hover:text-red-500 transition">
               Edit
             </Link>
-            <Link href="/audio-converter" className="hover:text-purple-500 transition">
+            <Link href="/audio-tools" className="hover:text-purple-500 transition">
               Audio
             </Link>
             <Link href="/remove-background" className="hover:text-emerald-500 transition">
@@ -69,6 +69,7 @@ export default function Header() {
               { href: "/rotate-pdf", label: "Rotate PDF" },
               { href: "/pdf-to-jpg", label: "PDF to JPG" },
               { href: "/remove-background", label: "Remove Background" },
+              { href: "/audio-tools", label: "Audio Tools (all)" },
               { href: "/audio-converter", label: "Audio Converter" },
               { href: "/mp4-to-mp3", label: "MP4 to MP3" },
               { href: "/mp3-to-wav", label: "MP3 to WAV" },

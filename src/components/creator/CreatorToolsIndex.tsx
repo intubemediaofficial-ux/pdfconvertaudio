@@ -26,7 +26,7 @@ export default function CreatorToolsIndex() {
             aria-label="Search tools"
           />
           <div className="flex flex-wrap justify-center gap-2 mt-5">
-            {creatorCategories.map((c) => (
+            {creatorCategories.filter((c) => c !== "Audio & Sound Tools").map((c) => (
               <a key={c} href={`#${c.replace(/\W+/g, "-").toLowerCase()}`} className="px-3 py-1.5 rounded-full bg-white border border-gray-200 text-sm font-semibold text-gray-600 hover:border-red-300">
                 {categoryIcons[c]} {c}
               </a>
@@ -36,7 +36,14 @@ export default function CreatorToolsIndex() {
       </section>
       <div className="max-w-7xl mx-auto px-4 py-10 space-y-12">
         {q && <p className="text-center text-gray-500">Showing {list.length} of {creatorTools.length} tools</p>}
-        {creatorCategories.map((c) => {
+        <Link href="/audio-tools" className="tool-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-purple-600 to-pink-500 text-white p-6">
+          <div>
+            <h2 className="text-2xl font-extrabold">🎙️ Audio & Sound Tools</h2>
+            <p className="opacity-90">Cutter, joiner, pitch, BPM, voice changer, 8D audio, converters and more are in the Audio section.</p>
+          </div>
+          <span className="shrink-0 bg-white text-purple-700 font-bold rounded-full px-5 py-2.5">Open Audio Tools →</span>
+        </Link>
+        {creatorCategories.filter((c) => c !== "Audio & Sound Tools" || q).map((c) => {
           const items = list.filter((t) => t.category === c);
           if (!items.length) return null;
           return (

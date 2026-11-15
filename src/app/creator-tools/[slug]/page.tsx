@@ -24,9 +24,6 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const related = creatorTools.filter((t) => t.category === tool.category && t.slug !== tool.slug).slice(0, 6);
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
-      <nav className="text-sm text-gray-500 mb-4">
-        <Link href="/creator-tools" className="hover:text-red-500">Creator Tools</Link> <span className="mx-1">›</span> {tool.category}
-      </nav>
       <div className="text-center mb-8">
         <div className="text-5xl mb-3">{tool.icon}</div>
         <h1 className="page-title">{tool.name}</h1>

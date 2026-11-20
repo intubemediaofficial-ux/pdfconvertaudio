@@ -292,7 +292,7 @@ async def videos_by_ids(ids: list[str]) -> list[dict]:
     except HTTPException as e:
         if e.status_code != 503:
             raise
-        scraped = await asyncio.gather(*[video_from_watch_page(i) for i in ids[:50]])
+        scraped = await asyncio.gather(*[video_from_watch_page(i) for i in ids])
         found = [x for x in scraped if x]
         if not found:
             raise

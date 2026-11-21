@@ -40,9 +40,9 @@ export const seoData: Record<string, SeoEntry> = {
     description:
       "Free YouTube downloader: paste a link and download YouTube videos as MP4 in 4K (2160p), 2K, 1080p, 720p or as MP3 audio. Fast, no sign-up, no app, works on phone and PC.",
     keywords: ["youtube downloader", "youtube video downloader", "download youtube video", "yt downloader", "youtube video download", "youtube downloader online", "free youtube downloader", "youtube to mp4", "youtube to mp3", "youtube 4k downloader", "youtube video download hd", "save youtube video", "youtube download link", "y2mate alternative", "savefrom alternative"],
-    steps: ["Copy the YouTube video link from the app or browser.", "Paste it in the box above and press Get video.", "Pick MP4 quality (4K, 1080p, 720p…) or MP3 and the download starts."],
+    steps: ["Copy the YouTube video link from the app or browser.", "Paste it in the box above. The video opens instantly, no button needed.", "Pick MP4 quality (4K, 1080p, 720p…) or MP3 and the download starts."],
     faqs: [
-      ["How do I download a YouTube video?", "Copy the video link, paste it above, press Get video and choose a quality. The file downloads straight to your phone or computer."],
+      ["How do I download a YouTube video?", "Copy the video link, paste it above and choose a quality. The file downloads straight to your phone or computer."],
       ["Can I download YouTube videos in 4K?", "Yes. If the video was uploaded in 4K you get 2160p, plus 2K (1440p), 1080p, 720p and lower."],
       ["Does it work on mobile?", "Yes, it works in any browser on Android, iPhone, Windows and Mac. No app needed."],
       ["Is there a download limit?", "No daily limit. You can run several downloads at the same time."],
@@ -57,7 +57,7 @@ export const seoData: Record<string, SeoEntry> = {
     description:
       "Convert YouTube to MP4 online for free. Download YouTube videos as MP4 in 1080p Full HD, 720p HD, 4K and every other quality. No sign-up, no software.",
     keywords: ["youtube to mp4", "youtube to mp4 converter", "youtube mp4 download", "convert youtube to mp4", "yt to mp4", "youtube video to mp4", "youtube to mp4 1080p", "youtube to mp4 hd"],
-    steps: ["Copy the YouTube link.", "Paste it and press Get video.", "Choose the MP4 quality and download."],
+    steps: ["Copy the YouTube link.", "Paste it in the box. The video opens instantly.", "Choose the MP4 quality and download."],
     faqs: [
       ["Which MP4 qualities can I get?", "Every quality the video has, from 144p up to 1080p Full HD, 2K and 4K."],
       ["Will the MP4 play on my phone?", "Yes. Up to 1080p the file is standard H.264 MP4 that plays everywhere."],
@@ -71,11 +71,68 @@ export const seoData: Record<string, SeoEntry> = {
     description:
       "Download YouTube videos in 4K Ultra HD (2160p) and 2K (1440p) for free. Paste a link, pick 4K and save the MP4. No sign-up, no app.",
     keywords: ["youtube 4k downloader", "4k video downloader", "download youtube video in 4k", "youtube 2160p download", "youtube 1440p download", "4k youtube to mp4", "ultra hd youtube downloader"],
-    steps: ["Copy the link of a video uploaded in 4K.", "Paste it and press Get video.", "Pick 2160p · 4K (or 1440p · 2K) and download."],
+    steps: ["Copy the link of a video uploaded in 4K.", "Paste it in the box. The video opens instantly.", "Pick 2160p · 4K (or 1440p · 2K) and download."],
     faqs: [
       ["Why don't I see the 4K option?", "4K appears only when the video was uploaded in 4K. Lower qualities are always available."],
       ["Which players play 4K files?", "4K and 2K files use AV1 or VP9 inside MP4 (YouTube has no H.264 above 1080p). VLC and modern phones, TVs and browsers play them."],
       ["How big is a 4K file?", "The exact size is shown next to each quality before you download."],
+      ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use."],
+    ],
+  },
+
+  "/youtube-to-mp3": {
+    kind: "youtube",
+    h1: "YouTube to MP3 Converter",
+    title: "YouTube to MP3 - Convert YouTube Videos to MP3 320kbps Free",
+    description:
+      "Convert YouTube to MP3 online for free. Paste a link and download the audio as MP3 320 kbps, 192 kbps, 128 kbps or M4A in seconds. No sign-up, no app.",
+    keywords: ["youtube to mp3", "youtube to mp3 converter", "yt to mp3", "youtube mp3 download", "youtube audio download", "convert youtube to mp3", "youtube to mp3 320kbps", "youtube song download", "mp3 downloader"],
+    steps: ["Copy the YouTube video or song link.", "Paste it in the box. The video opens instantly.", "Pick MP3 320, 192 or 128 kbps (or M4A) and the download starts."],
+    faqs: [
+      ["What is the best MP3 quality?", "MP3 320 kbps is the highest. M4A keeps YouTube's original audio without re-encoding."],
+      ["Does it work for long videos and podcasts?", "Yes, videos up to 4 hours long can be converted."],
+      ["Is it allowed to download music from YouTube?", "Only download audio you own or have permission to use."],
+    ],
+  },
+  "/youtube-shorts-downloader": {
+    kind: "youtube",
+    h1: "YouTube Shorts Downloader",
+    title: "YouTube Shorts Downloader - Download Shorts in HD MP4 Free",
+    description:
+      "Download YouTube Shorts in full HD vertical MP4 or as MP3 for free. Paste the Shorts link and save it in seconds. No watermark, no sign-up, works on phone.",
+    keywords: ["youtube shorts downloader", "shorts downloader", "download youtube shorts", "youtube shorts download", "shorts video download", "yt shorts downloader", "shorts to mp4", "shorts to mp3"],
+    steps: ["Open the Short, tap Share and copy the link.", "Paste it in the box. The Short opens instantly.", "Pick a quality and the vertical MP4 downloads."],
+    faqs: [
+      ["Does the Short stay vertical?", "Yes. You get the original vertical video in the best quality it was uploaded in."],
+      ["Is there a watermark?", "No. The file is the original video with nothing added."],
+      ["Is it allowed to download Shorts?", "Only download Shorts you own or have permission to use."],
+    ],
+  },
+  "/youtube-1080p-downloader": {
+    kind: "youtube",
+    h1: "YouTube 1080p HD Downloader",
+    title: "YouTube 1080p Downloader - Download YouTube Videos in Full HD MP4",
+    description:
+      "Download YouTube videos in 1080p Full HD or 720p HD as standard MP4 that plays everywhere. Paste the link, pick 1080p and save. Free, fast, no sign-up.",
+    keywords: ["youtube 1080p downloader", "youtube hd downloader", "download youtube video hd", "youtube full hd download", "youtube 720p download", "youtube video download 1080p", "hd video downloader"],
+    steps: ["Copy the YouTube link.", "Paste it in the box. The video opens instantly.", "Pick 1080p · Full HD (or 720p · HD) and download."],
+    faqs: [
+      ["Will the 1080p file play on every device?", "Yes. Up to 1080p the video is H.264 MP4 that plays on phones, TVs, PCs and editing apps."],
+      ["Why is 1080p the fastest?", "We start preparing the best quality up to 1080p as soon as you paste the link, so it usually downloads straight away."],
+      ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use."],
+    ],
+  },
+  "/yt-downloader": {
+    kind: "youtube",
+    h1: "YT Downloader",
+    title: "YT Downloader - Fast YouTube Video & MP3 Downloader Online",
+    description:
+      "YT downloader online: paste any YouTube link to download the video as MP4 (4K, 1080p, 720p) or audio as MP3. Opens instantly, no sign-up, no limits.",
+    keywords: ["yt downloader", "yt video downloader", "yt to mp4", "yt to mp3", "yt download", "youtube video saver", "online video downloader", "fast youtube downloader"],
+    steps: ["Copy the YouTube link.", "Paste it in the box. The video opens instantly.", "Pick a video or audio quality and download."],
+    faqs: [
+      ["Is this YT downloader free?", "Yes, completely free with no daily limit and no sign-up."],
+      ["How fast is it?", "The video opens as soon as you paste the link, and the most likely quality is prepared in advance."],
       ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use."],
     ],
   },
@@ -346,9 +403,9 @@ const creator: Record<string, CT> = {
   "youtube-playlist-to-text": { h1: "YouTube Playlist to Text Converter", title: "YouTube Playlist to Text - Export Playlist to TXT, CSV, Excel", description: "Export YouTube playlist titles, links and descriptions to TXT, CSV or Excel. Free playlist exporter.", keywords: ["youtube playlist to text", "export youtube playlist", "playlist to csv", "playlist to excel", "copy playlist titles"], faqs: [["What can be exported?", "Video titles, links, descriptions and more for every public video."], ["Which formats are available?", "TXT, CSV and Excel."]] },
   "youtube-category-checker": { h1: "YouTube Category Checker", title: "YouTube Category Checker - Find a Video's Category", description: "Check the official YouTube category of one video, many videos or a whole channel. Free category finder.", keywords: ["youtube category checker", "youtube video category", "find youtube category", "youtube category finder"], faqs: [["Why does the category matter?", "It helps YouTube understand your content and can affect recommendations."], ["Can I check many videos?", "Yes, paste several links or a channel."]] },
   "youtube-channel-video-list": { h1: "YouTube Channel Video List Extractor", title: "YouTube Channel Video List - Export All Videos of a Channel", description: "Export every public video of a YouTube channel with views, likes and upload dates to CSV or Excel. Free video list extractor.", keywords: ["youtube channel video list", "export youtube channel videos", "list all videos of a channel", "youtube video list extractor"], faqs: [["Which details are included?", "Title, link, views, likes and publish date for every public video."], ["Can I sort the list?", "Yes, sort by views, likes or date before exporting."]] },
-  "youtube-video-downloader": { h1: "YouTube Video Downloader", title: "YouTube Video Downloader - Download YouTube Videos in 4K, 1080p MP4", description: "Free YouTube video downloader. Paste a link and download videos as MP4 in 4K (2160p), 2K, 1080p, 720p or lower, or save the audio as MP3.", keywords: ["youtube video downloader", "download youtube video", "youtube downloader", "youtube to mp4", "youtube 4k downloader", "youtube 1080p download", "yt video download"], steps: ["Copy the YouTube video link.", "Paste it and press Get video.", "Pick a quality (4K, 1080p, 720p…) or MP3 and download."], faqs: [["Which qualities are available?", "Every quality the video has: 4K (2160p), 2K (1440p), 1080p, 720p, 480p, 360p and lower."], ["Can I download only the audio?", "Yes. Switch to the Audio tab for MP3 (320, 192 or 128 kbps) or M4A."], ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use, and respect the creator's copyright."]] },
-  "youtube-to-mp3": { h1: "YouTube to MP3 Converter", title: "YouTube to MP3 - Convert YouTube Videos to MP3 320kbps Free", description: "Convert YouTube videos to MP3 in 320, 192 or 128 kbps, or save the original M4A audio. Free YouTube to MP3 converter, no sign-up.", keywords: ["youtube to mp3", "youtube mp3 converter", "youtube to mp3 320kbps", "youtube audio download", "yt to mp3", "convert youtube to mp3"], steps: ["Copy the YouTube video link.", "Paste it and press Get video.", "Choose MP3 320, 192, 128 kbps or M4A and download."], faqs: [["What is the best MP3 quality?", "320 kbps gives the best quality; 128 kbps gives the smallest file."], ["Is the cover art included?", "Yes, MP3 files include the video thumbnail as cover art and the title as metadata."], ["Can I download any song?", "Only download audio you own or have permission to use."]] },
-  "youtube-shorts-downloader": { h1: "YouTube Shorts Downloader", title: "YouTube Shorts Downloader - Download Shorts in HD MP4 & MP3", description: "Download YouTube Shorts in full HD as MP4 video or MP3 audio. Paste a Shorts link and save it for free.", keywords: ["youtube shorts downloader", "download youtube shorts", "shorts video download", "youtube shorts to mp4", "shorts to mp3"], steps: ["Copy the Shorts link.", "Paste it and press Get video.", "Pick a quality or MP3 and download."], faqs: [["Does it keep the vertical format?", "Yes, Shorts are downloaded in their original vertical size."], ["Can I get the sound only?", "Yes, use the Audio tab for MP3 or M4A."]] },
+  "youtube-video-downloader": { h1: "YouTube Video Downloader", title: "YouTube Video Downloader - Download YouTube Videos in 4K, 1080p MP4", description: "Free YouTube video downloader. Paste a link and download videos as MP4 in 4K (2160p), 2K, 1080p, 720p or lower, or save the audio as MP3.", keywords: ["youtube video downloader", "download youtube video", "youtube downloader", "youtube to mp4", "youtube 4k downloader", "youtube 1080p download", "yt video download"], steps: ["Copy the YouTube video link.", "Paste it in the box. The video opens instantly.", "Pick a quality (4K, 1080p, 720p…) or MP3 and download."], faqs: [["Which qualities are available?", "Every quality the video has: 4K (2160p), 2K (1440p), 1080p, 720p, 480p, 360p and lower."], ["Can I download only the audio?", "Yes. Switch to the Audio tab for MP3 (320, 192 or 128 kbps) or M4A."], ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use, and respect the creator's copyright."]] },
+  "youtube-to-mp3": { h1: "YouTube to MP3 Converter", title: "YouTube to MP3 - Convert YouTube Videos to MP3 320kbps Free", description: "Convert YouTube videos to MP3 in 320, 192 or 128 kbps, or save the original M4A audio. Free YouTube to MP3 converter, no sign-up.", keywords: ["youtube to mp3", "youtube mp3 converter", "youtube to mp3 320kbps", "youtube audio download", "yt to mp3", "convert youtube to mp3"], steps: ["Copy the YouTube video link.", "Paste it in the box. The video opens instantly.", "Choose MP3 320, 192, 128 kbps or M4A and download."], faqs: [["What is the best MP3 quality?", "320 kbps gives the best quality; 128 kbps gives the smallest file."], ["Is the cover art included?", "Yes, MP3 files include the video thumbnail as cover art and the title as metadata."], ["Can I download any song?", "Only download audio you own or have permission to use."]] },
+  "youtube-shorts-downloader": { h1: "YouTube Shorts Downloader", title: "YouTube Shorts Downloader - Download Shorts in HD MP4 & MP3", description: "Download YouTube Shorts in full HD as MP4 video or MP3 audio. Paste a Shorts link and save it for free.", keywords: ["youtube shorts downloader", "download youtube shorts", "shorts video download", "youtube shorts to mp4", "shorts to mp3"], steps: ["Copy the Shorts link.", "Paste it in the box. The video opens instantly.", "Pick a quality or MP3 and download."], faqs: [["Does it keep the vertical format?", "Yes, Shorts are downloaded in their original vertical size."], ["Can I get the sound only?", "Yes, use the Audio tab for MP3 or M4A."]] },
   "youtube-banner-downloader": { h1: "YouTube Banner Downloader", title: "YouTube Banner Downloader - Download Channel Art & Profile Picture", description: "Download any YouTube channel's banner (channel art) and profile picture in full size. Free banner and logo downloader.", keywords: ["youtube banner downloader", "download youtube banner", "youtube channel art download", "youtube profile picture download", "youtube logo download"], faqs: [["What size is the banner?", "The largest size YouTube provides, usually 2560 px wide."], ["Can I get the profile picture too?", "Yes, in full resolution."]] },
   "youtube-thumbnail-downloader": { h1: "YouTube Thumbnail Downloader", title: "YouTube Thumbnail Downloader - Download HD Thumbnails Free", description: "Download YouTube video thumbnails in HD, Full HD and every available resolution. Paste a video link and save the image for free.", keywords: ["youtube thumbnail downloader", "download youtube thumbnail", "youtube thumbnail download hd", "get youtube thumbnail", "thumbnail grabber"], faqs: [["Which resolutions are available?", "Max-res (1280×720 when available), HD, SD, medium and default sizes."], ["Does it work for Shorts?", "Yes, paste any video or Shorts link."]] },
   "youtube-comment-picker": { h1: "YouTube Comment Picker", title: "YouTube Comment Picker - Random Giveaway Winner Picker", description: "Pick random giveaway winners from a YouTube video's comments with fair filters: unique users, keywords and more. Free comment picker.", keywords: ["youtube comment picker", "youtube giveaway picker", "random comment picker", "youtube random winner", "giveaway winner picker"], faqs: [["Is the pick random and fair?", "Yes. Winners are chosen randomly, and you can allow only one entry per user."], ["Can I filter by keyword?", "Yes, only include comments that contain a word you choose."]] },

@@ -16,10 +16,14 @@ type DlInfo = {
   video: { height: number; size: number }[];
   audio: { id: string; size: number }[];
 };
+type DlMeta = Pick<DlInfo, "id" | "title" | "channel" | "thumbnail">;
 type DlStatus = { state: "queued" | "downloading" | "processing" | "done" | "error"; percent: number; error?: string; size?: number; filename?: string };
 
 const QUALITY_LABEL: Record<number, string> = { 2160: "4K", 1440: "2K", 1080: "Full HD", 720: "HD" };
 const AUDIO_LABEL: Record<string, string> = { "mp3-320": "MP3 · 320 kbps", "mp3-192": "MP3 · 192 kbps", "mp3-128": "MP3 · 128 kbps", m4a: "M4A · original" };
+// shown straight away while the exact list and sizes load; a missing quality falls back to the next lower one
+const DEFAULT_VIDEO = [2160, 1440, 1080, 720, 480, 360].map((height) => ({ height, size: 0 }));
+const DEFAULT_AUDIO = Object.keys(AUDIO_LABEL).map((id) => ({ id, size: 0 }));
 
 function fmtSize(b: number) {
   if (!b) return "";
@@ -33,7 +37,10 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
   const [status, setStatus] = useState<DlStatus | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const fired = useRef<string | null>(null);
+  const [preview, setPreview] = useState<DlMeta | null>(null);
+  const req = useRef(0);
   const info = s.data;
+  const view: DlMeta | null = info ?? (s.error ? null : preview);
   const busy = !!job && !!status && !["done", "error"].includes(status.state);
 
   useEffect(() => {
@@ -48,7 +55,7 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
           fired.current = job.id;
           window.location.href = apiUrl(`/dl/file/${job.id}`);
         }
-        if (st.state !== "done" && st.state !== "error") setTimeout(tick, 1500);
+        if (st.state !== "done" && st.state !== "error") setTimeout(tick, 800);
       } catch (e) {
         if (!stop) setStatus({ state: "error", percent: 0, error: e instanceof Error ? e.message : "Download failed." });
       }
@@ -60,11 +67,12 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
   }, [job]);
 
   const start = async (kind: "video" | "audio", quality: string, label: string) => {
-    if (!info || busy) return;
+    if (!view || busy) return;
     setErr(null);
     setStatus({ state: "queued", percent: 0 });
     try {
-      const r = await apiPost<{ job: string }>("/dl/start", { url: info.id, kind, quality });
+      const r = await apiPost<{ job: string }>("/dl/start", { url: view.id, kind, quality });
+      fired.current = null;
       setJob({ id: r.job, label });
     } catch (e) {
       setStatus(null);
@@ -94,29 +102,41 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
         placeholder={placeholder}
         button="Get video"
         loading={s.loading}
+        submitOnPaste={(v) => !!videoIdOf(v)}
         onSubmit={(v) => {
           setJob(null);
           setStatus(null);
           setErr(null);
-          s.run(() => apiGet<DlInfo>("/dl/info", { url: v }));
+          const id = videoIdOf(v);
+          const n = ++req.current;
+          s.setData(null);
+          // The thumbnail shows instantly, the title in a fraction of a second (and the likely quality
+          // starts preparing on the server); the exact qualities and sizes follow from the full info.
+          setPreview(id ? { id, title: "", channel: "", thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` } : null);
+          if (id)
+            apiGet<DlMeta>("/dl/meta", { url: id, prefetch: tab })
+              .then((m) => n === req.current && setPreview(m))
+              .catch(() => {});
+          s.run(() => apiGet<DlInfo>("/dl/info", { url: v, prefetch: tab }));
         }}
       />
       <ErrorBox error={s.error} />
-      {s.loading && <Spinner label="Reading video…" />}
-      {info && (
+      {s.loading && !view && <Spinner label="Reading video…" />}
+      {view && (
         <div className="mt-6 space-y-5">
           <div className="flex flex-col sm:flex-row gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imgProxy(info.thumbnail)} alt={info.title} className="w-full sm:w-56 rounded-xl bg-gray-100 aspect-video object-cover" />
+            <img src={imgProxy(view.thumbnail)} alt={view.title} className="w-full sm:w-56 rounded-xl bg-gray-100 aspect-video object-cover" />
             <div className="min-w-0">
-              <h2 className="font-extrabold text-lg text-gray-900 break-words">{info.title}</h2>
+              <h2 className="font-extrabold text-lg text-gray-900 break-words">{view.title || "Reading video…"}</h2>
               <p className="text-sm text-gray-600">
-                {info.channel}
-                {info.duration ? ` · ${fmtDuration(info.duration)}` : ""}
+                {view.channel}
+                {info?.duration ? ` · ${fmtDuration(info.duration)}` : ""}
               </p>
+              {!info && s.loading && <p className="mt-1 text-xs text-gray-500">Checking exact qualities and file sizes… you can already pick one.</p>}
             </div>
           </div>
-          {info.tooLong ? (
+          {info?.tooLong ? (
             <p className="text-gray-700">Videos longer than 4 hours cannot be downloaded.</p>
           ) : (
             <>
@@ -136,11 +156,11 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
                 {tab === "video"
-                  ? info.video.map((v) => {
+                  ? (info?.video ?? DEFAULT_VIDEO).map((v) => {
                       const label = `${v.height}p`;
                       return btn(label, `${label}${QUALITY_LABEL[v.height] ? ` · ${QUALITY_LABEL[v.height]}` : ""}`, ["MP4", fmtSize(v.size) && `~${fmtSize(v.size)}`].filter(Boolean).join(" · "), () => start("video", String(v.height), label));
                     })
-                  : info.audio.map((a) => btn(a.id, AUDIO_LABEL[a.id] || a.id, fmtSize(a.size) && `~${fmtSize(a.size)}`, () => start("audio", a.id, AUDIO_LABEL[a.id] || a.id)))}
+                  : (info?.audio ?? DEFAULT_AUDIO).map((a) => btn(a.id, AUDIO_LABEL[a.id] || a.id, fmtSize(a.size) && `~${fmtSize(a.size)}`, () => start("audio", a.id, AUDIO_LABEL[a.id] || a.id)))}
               </div>
             </>
           )}

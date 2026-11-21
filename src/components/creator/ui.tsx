@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type ClipboardEvent, type ReactNode } from "react";
 import { downloadCSV, downloadXLSX, downloadText, type Row } from "@/lib/creator/export";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -54,6 +54,7 @@ export function SearchForm({
   loading,
   defaultValue = "",
   multiline = false,
+  submitOnPaste,
   children,
 }: {
   placeholder: string;
@@ -62,9 +63,17 @@ export function SearchForm({
   loading?: boolean;
   defaultValue?: string;
   multiline?: boolean;
+  submitOnPaste?: (v: string) => boolean;
   children?: ReactNode;
 }) {
   const [v, setV] = useState(defaultValue);
+  const onPaste = (e: ClipboardEvent) => {
+    const text = e.clipboardData.getData("text").trim();
+    if (!submitOnPaste || loading || !submitOnPaste(text)) return;
+    e.preventDefault();
+    setV(text);
+    onSubmit(text);
+  };
   return (
     <form
       onSubmit={(e) => {
@@ -77,7 +86,7 @@ export function SearchForm({
         {multiline ? (
           <textarea value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder} rows={5} className="input-field flex-1 min-w-0" />
         ) : (
-          <input value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder} className="input-field flex-1 min-w-0" />
+          <input value={v} onChange={(e) => setV(e.target.value)} onPaste={onPaste} placeholder={placeholder} className="input-field flex-1 min-w-0" />
         )}
         <button type="submit" disabled={loading || !v.trim()} className="btn-primary !px-8 !py-3 !text-lg disabled:opacity-50 disabled:cursor-not-allowed shrink-0">
           {loading ? "Please wait…" : button}

@@ -9,6 +9,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     url: `${SITE_URL}${p === "/" ? "" : p}`,
     lastModified: now,
     changeFrequency: "weekly",
-    priority: p === "/" ? 1 : p === "/audio-tools" || p === "/creator-tools" || p === "/youtube-downloader" ? 0.9 : 0.8,
+    priority: p === "/" ? 1 : p === "/audio-tools" || p === "/creator-tools" || p === "/youtube-downloader" || p === "/youtube-to-mp3" || p === "/yt-downloader" ? 0.9 : 0.8,
   }));
 }

@@ -1248,7 +1248,8 @@ async def dl_info(url: str):
         h = f.get("height")
         if not h or f.get("vcodec") in (None, "none") or f.get("protocol") == "mhtml":
             continue
-        h = min(DL_HEIGHTS, key=lambda x: abs(x - min(f.get("width") or h, h)))
+        # round up so e.g. a 1920x800 stream is offered as 1080p and _dl_args' "<=1080" still picks it
+        h = next((x for x in reversed(DL_HEIGHTS) if x >= min(f.get("width") or h, h)), DL_HEIGHTS[0])
         size = f.get("filesize") or f.get("filesize_approx") or 0
         sizes.setdefault(h, []).append((str(f.get("vcodec", "")).startswith("avc1"), size))
     heights: dict[int, int] = {}

@@ -1163,18 +1163,22 @@ from urllib.parse import quote as url_quote
 YTDLP = os.environ.get("YTDLP_BIN", "/opt/ytdl/venv/bin/yt-dlp")
 DL_DIR = Path(os.environ.get("DL_DIR", "/var/cache/ytdl"))
 DL_TTL = 3 * 3600
+DL_PREFETCH_TTL = 30 * 60
+DL_PREFETCH_MAX_SECONDS = 30 * 60
 DL_MAX_SECONDS = 4 * 3600
 DL_HEIGHTS = (2160, 1440, 1080, 720, 480, 360, 240, 144)
 DL_AUDIO = {"mp3-320": ("mp3", "320K"), "mp3-192": ("mp3", "192K"), "mp3-128": ("mp3", "128K"), "m4a": ("m4a", None)}
 _dl_jobs: dict[str, dict] = {}
-_dl_sem = asyncio.Semaphore(int(os.environ.get("DL_CONCURRENCY", "4")))
+DL_WORKERS = int(os.environ.get("DL_CONCURRENCY", "4"))
+_dl_sem = asyncio.Semaphore(DL_WORKERS)
 _dl_info_sem = asyncio.Semaphore(int(os.environ.get("DL_INFO_CONCURRENCY", "4")))
 
 
 def _dl_cleanup():
     now = time.time()
     for jid, j in list(_dl_jobs.items()):
-        if now - j.get("finished", j["created"]) > DL_TTL and j["state"] in ("done", "error"):
+        ttl = DL_PREFETCH_TTL if j.get("prefetch") else DL_TTL
+        if now - j.get("finished", j["created"]) > ttl and j["state"] in ("done", "error"):
             _dl_jobs.pop(jid, None)
             shutil.rmtree(DL_DIR / jid, ignore_errors=True)
     if DL_DIR.is_dir():
@@ -1237,8 +1241,60 @@ async def _dl_cleanup_loop():
     asyncio.create_task(loop())
 
 
+def _dl_running() -> int:
+    return sum(j["state"] in ("queued", "downloading", "processing") for j in _dl_jobs.values())
+
+
+def _dl_find(vid: str, kind: str, quality: str) -> str | None:
+    """A queued, running or finished job for the same file, so repeat requests start instantly."""
+    for jid, j in _dl_jobs.items():
+        if j.get("key") != (vid, kind, quality) or j["state"] == "error":
+            continue
+        if j["state"] != "done" or (DL_DIR / jid / j["file"]).is_file():
+            return jid
+    return None
+
+
+def _dl_new(vid: str, kind: str, quality: str, ip: str, info: dict, prefetch: bool = False) -> str:
+    jid = uuid.uuid4().hex
+    (DL_DIR / jid).mkdir(parents=True, exist_ok=True)
+    os.chmod(DL_DIR, 0o755)
+    os.chmod(DL_DIR / jid, 0o755)
+    _dl_jobs[jid] = {"ip": ip, "state": "queued", "percent": 0, "title": info["title"], "created": time.time(),
+                     "key": (vid, kind, quality), "prefetch": prefetch}
+    asyncio.create_task(_dl_run(jid, vid, kind, quality, info["vertical"]))
+    return jid
+
+
+def _dl_prefetch(info: dict, tab: str, ip: str):
+    # Start preparing the most likely choice while the user is still looking at the options,
+    # so clicking it downloads straight away. Short videos only, and never when the server is busy.
+    if info["tooLong"] or info["duration"] > DL_PREFETCH_MAX_SECONDS or _dl_running() >= DL_WORKERS:
+        return
+    if tab == "audio":
+        kind, quality = "audio", "mp3-320"
+    else:
+        hs = [v["height"] for v in info["video"] if v["height"] <= 1080]
+        if not hs:
+            return
+        kind, quality = "video", str(max(hs))
+    if not _dl_find(info["id"], kind, quality):
+        _dl_new(info["id"], kind, quality, ip, info, prefetch=True)
+
+
+def _client_ip(request: Request) -> str:
+    return request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
+
+
 @app.get("/dl/info")
-async def dl_info(url: str):
+async def dl_info(url: str, request: Request, prefetch: str = ""):
+    res = await _dl_info(url)
+    if prefetch in ("video", "audio"):
+        _dl_prefetch(res, prefetch, _client_ip(request))
+    return res
+
+
+async def _dl_info(url: str) -> dict:
     vid = video_id_of(url)
     key = "dl:" + vid
     hit = cache_get(key)
@@ -1348,9 +1404,9 @@ async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, vertical: boo
         job.update(state="error", error="The download took too long. Please try a lower quality.")
         return
     files = [f for f in outdir.glob("media.*") if f.suffix not in (".part", ".ytdl", ".webp", ".jpg") and ".f" not in f.stem]
-    if (proc.returncode != 0 or not files) and attempt < 2:
+    if (proc.returncode != 0 or not files) and attempt < 3:
         print(f"yt-dlp download {vid} {kind} {quality} attempt {attempt} failed: {' | '.join(list(tail)[-3:])[-500:]}", flush=True)
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         return await _dl_attempt(jid, vid, kind, quality, vertical, attempt + 1)
     if proc.returncode != 0 or not files:
         msg = " ".join(tail)
@@ -1377,21 +1433,19 @@ async def dl_start(request: Request):
         raise HTTPException(400, "Unknown audio format.")
     if kind not in ("video", "audio"):
         raise HTTPException(400, "Choose video or audio.")
-    ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
+    ip = _client_ip(request)
     _dl_cleanup()
-    active = [j for j in _dl_jobs.values() if j["ip"] == ip and j["state"] in ("queued", "downloading", "processing")]
+    jid = _dl_find(vid, kind, quality)
+    if jid:
+        _dl_jobs[jid].update(prefetch=False)
+        return {"job": jid}
+    active = [j for j in _dl_jobs.values() if j["ip"] == ip and not j.get("prefetch") and j["state"] in ("queued", "downloading", "processing")]
     if len(active) >= 4:
         raise HTTPException(429, "You already have 4 downloads running. Please wait for one to finish.")
-    info = await dl_info(vid)
+    info = await _dl_info(vid)
     if info["tooLong"]:
         raise HTTPException(400, "Videos longer than 4 hours cannot be downloaded.")
-    jid = uuid.uuid4().hex
-    (DL_DIR / jid).mkdir(parents=True, exist_ok=True)
-    os.chmod(DL_DIR, 0o755)
-    os.chmod(DL_DIR / jid, 0o755)
-    _dl_jobs[jid] = {"ip": ip, "state": "queued", "percent": 0, "title": info["title"], "created": time.time()}
-    asyncio.create_task(_dl_run(jid, vid, kind, quality, info["vertical"]))
-    return {"job": jid}
+    return {"job": _dl_new(vid, kind, quality, ip, info)}
 
 
 @app.get("/dl/status/{jid}")

@@ -48,7 +48,7 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
           fired.current = job.id;
           window.location.href = apiUrl(`/dl/file/${job.id}`);
         }
-        if (st.state !== "done" && st.state !== "error") setTimeout(tick, 1500);
+        if (st.state !== "done" && st.state !== "error") setTimeout(tick, 800);
       } catch (e) {
         if (!stop) setStatus({ state: "error", percent: 0, error: e instanceof Error ? e.message : "Download failed." });
       }
@@ -94,11 +94,12 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
         placeholder={placeholder}
         button="Get video"
         loading={s.loading}
+        submitOnPaste={(v) => !!videoIdOf(v)}
         onSubmit={(v) => {
           setJob(null);
           setStatus(null);
           setErr(null);
-          s.run(() => apiGet<DlInfo>("/dl/info", { url: v }));
+          s.run(() => apiGet<DlInfo>("/dl/info", { url: v, prefetch: tab }));
         }}
       />
       <ErrorBox error={s.error} />

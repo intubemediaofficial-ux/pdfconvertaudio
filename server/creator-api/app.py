@@ -1302,7 +1302,12 @@ def _dl_args(kind: str, quality: str, outdir: Path, vertical: bool = False) -> l
 
 async def _dl_run(jid: str, vid: str, kind: str, quality: str, vertical: bool):
     async with _dl_sem:
-        await _dl_attempt(jid, vid, kind, quality, vertical, 1)
+        try:
+            await _dl_attempt(jid, vid, kind, quality, vertical, 1)
+        except Exception as e:  # never leave a job stuck "downloading"
+            print(f"yt-dlp download {vid} crashed: {e!r}", flush=True)
+            _dl_jobs[jid].update(state="error", error="Download failed. Please try again.")
+            shutil.rmtree(DL_DIR / jid, ignore_errors=True)
 
 
 async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, vertical: bool, attempt: int):

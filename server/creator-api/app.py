@@ -957,19 +957,23 @@ def _approved(url: str) -> bool:
     return _thumb_ok.get(url, 0) > time.time()
 
 
-async def _public_ip(url: str):
-    """Resolve the URL's host once and return a public IP to pin the connection to, or None."""
+async def _public_ips(url: str) -> list:
+    """Resolve the URL's host once; return its addresses (IPv4 first) only if every one is public."""
     p = urlparse(url)
     if p.scheme not in ("http", "https") or not p.hostname or p.port not in (None, 80, 443):
-        return None
+        return []
     try:
         infos = await asyncio.get_running_loop().getaddrinfo(p.hostname, p.port or (443 if p.scheme == "https" else 80), type=socket.SOCK_STREAM)
-        ips = [ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos]
-    except (OSError, ValueError):
-        return None
+        ips = list(dict.fromkeys(ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos))
+    except (OSError, ValueError, UnicodeError):
+        return []
     if not ips or not all(ip.is_global for ip in ips):
-        return None
-    return ips[0]
+        return []
+    return sorted(ips, key=lambda ip: ip.version)[:4]
+
+
+# No keep-alive: connections are pinned to an IP, so a pooled one could carry another host's SNI.
+_thumb_client = httpx.AsyncClient(timeout=12, limits=httpx.Limits(max_keepalive_connections=0))
 
 
 async def _safe_fetch(url: str, ua: str, limit: int, accept: str = "*/*"):
@@ -977,27 +981,35 @@ async def _safe_fetch(url: str, ua: str, limit: int, accept: str = "*/*"):
     (Host header + TLS SNI keep the real hostname), so DNS rebinding can't reach internal addresses.
     Returns (status, content-type, body, final_url, truncated)."""
     for _ in range(6):
-        ip = await _public_ip(url)
-        if ip is None:
+        ips = await _public_ips(url)
+        if not ips:
             raise HTTPException(400, "This link can't be opened.")
         p = urlparse(url)
-        netloc = f"[{ip}]" if ip.version == 6 else str(ip)
-        if p.port:
-            netloc += f":{p.port}"
-        pinned = p._replace(netloc=netloc).geturl()
-        host_hdr = p.hostname + (f":{p.port}" if p.port else "")
-        async with client.stream("GET", pinned, follow_redirects=False, timeout=12, extensions={"sni_hostname": p.hostname},
-                                 headers={"Host": host_hdr, "User-Agent": ua, "Accept": accept, "Accept-Language": "en-US,en;q=0.8"}) as r:
-            if r.is_redirect and r.headers.get("location"):
-                url = urljoin(url, r.headers["location"])
-                continue
-            body, truncated = bytearray(), False
-            async for chunk in r.aiter_bytes():
-                body += chunk
-                if len(body) > limit:
-                    truncated = True
-                    break
-            return r.status_code, r.headers.get("content-type", ""), bytes(body[:limit]), url, truncated
+        try:
+            host = p.hostname.encode("idna").decode("ascii")
+        except UnicodeError:
+            raise HTTPException(400, "This link can't be opened.")
+        port = f":{p.port}" if p.port else ""
+        last_err = None
+        for ip in ips:
+            pinned = p._replace(netloc=(f"[{ip}]" if ip.version == 6 else str(ip)) + port).geturl()
+            try:
+                async with _thumb_client.stream("GET", pinned, follow_redirects=False, extensions={"sni_hostname": host},
+                                                headers={"Host": host + port, "User-Agent": ua, "Accept": accept, "Accept-Language": "en-US,en;q=0.8"}) as r:
+                    if r.is_redirect and r.headers.get("location"):
+                        url = urljoin(url, r.headers["location"])
+                        break
+                    body, truncated = bytearray(), False
+                    async for chunk in r.aiter_bytes():
+                        body += chunk
+                        if len(body) > limit:
+                            truncated = True
+                            break
+                    return r.status_code, r.headers.get("content-type", ""), bytes(body[:limit]), url, truncated
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                last_err = e
+        else:
+            raise last_err or HTTPException(400, "This link can't be opened.")
     raise HTTPException(400, "Too many redirects.")
 
 
@@ -1160,7 +1172,10 @@ async def thumb_img(url: str, name: str = ""):
     if not _approved(url):
         raise HTTPException(400, "Please get the thumbnail again.")
     limit = 30_000_000
-    code, ctype, body, _, truncated = await _safe_fetch(url, THUMB_UAS[1], limit, "image/*")
+    try:
+        code, ctype, body, _, truncated = await _safe_fetch(url, THUMB_UAS[1], limit, "image/*")
+    except httpx.HTTPError:
+        raise HTTPException(502, "Image could not be loaded. Please try again.")
     ctype = ctype.split(";")[0].strip().lower()
     if truncated:
         raise HTTPException(413, "This image is larger than 30 MB.")

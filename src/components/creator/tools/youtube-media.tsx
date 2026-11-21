@@ -219,16 +219,100 @@ function DownloadImage({ src, name, label }: { src: string; name: string; label:
   );
 }
 
+type ArtworkRes = { platform: string; title: string; images: { url: string; label: string }[] };
+
+const ARTWORK_SOURCES = ["YouTube", "Spotify", "Apple Music", "JioSaavn", "SoundCloud", "Deezer", "Instagram", "Vimeo"];
+
+function isOtherLink(v: string) {
+  const s = v.trim();
+  if (!/^(https?:\/\/)?[\w-]+(\.[\w-]+)+\//i.test(s) && !/^https?:\/\//i.test(s)) return false;
+  try {
+    const host = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`).hostname;
+    return !/(^|\.)(youtube\.com|youtu\.be)$/i.test(host);
+  } catch {
+    return false;
+  }
+}
+
+function ArtworkCard({ img, name, wide }: { img: ArtworkRes["images"][number]; name: string; wide: boolean }) {
+  const [size, setSize] = useState("");
+  const qs = (extra: Record<string, string> = {}) => new URLSearchParams({ url: img.url, ...extra }).toString();
+  return (
+    <div className={`rounded-xl border border-gray-200 p-3 space-y-2 ${wide ? "sm:col-span-2" : ""}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={apiUrl(`/thumb/img?${qs()}`)}
+        alt={img.label}
+        className="w-full max-h-[70vh] object-contain rounded-lg bg-gray-100"
+        onLoad={(e) => {
+          const t = e.target as HTMLImageElement;
+          setSize(`${t.naturalWidth}×${t.naturalHeight}`);
+        }}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-gray-700">
+          {img.label.split(" · ")[0]}
+          {size && <span className="text-gray-500 font-normal"> · {size} px</span>}
+        </span>
+        <a href={apiUrl(`/thumb/img?${qs({ name })}`)} className="btn-success !px-4 !py-1.5 !text-sm">⬇ Download</a>
+      </div>
+    </div>
+  );
+}
+
+function ArtworkResults({ data }: { data: ArtworkRes }) {
+  const base = safeName(data.title || data.platform) || "thumbnail";
+  return (
+    <div className="mt-6 space-y-4">
+      <div>
+        <span className="inline-block rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1">{data.platform}</span>
+        {data.title && <h2 className="font-extrabold text-xl text-gray-900 mt-2 break-words">{data.title}</h2>}
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        {data.images.map((img, i) => (
+          <ArtworkCard key={img.url} img={img} wide={i === 0} name={`${base}-${safeName(img.label.split(" · ")[0]).toLowerCase() || i}.jpg`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SupportedSources() {
+  return (
+    <p className="mt-3 text-xs text-gray-500">
+      Works with {ARTWORK_SOURCES.join(", ")} and most music store or social links.
+    </p>
+  );
+}
+
 export function BannerDownloader() {
   const s = useAsync<YTChannel>();
+  const art = useAsync<ArtworkRes>();
   const c = s.data;
   const base = c?.banner || "";
   const avatar = (c?.thumbnails.high || c?.thumbnail || "").replace(/=s\d+[^&]*$/, "=s900-c-k-c0x00ffffff-no-rj");
   return (
     <Card>
-      <SearchForm placeholder="Channel link, @handle or video link" button="Get banner" loading={s.loading} onSubmit={(v) => s.run(() => apiGet<YTChannel>("/yt/channel", { url: v }))} />
-      <ErrorBox error={s.error} />
-      {s.loading && <Spinner />}
+      <SearchForm
+        placeholder="YouTube channel, Spotify artist, Apple Music or any link"
+        button="Get banner"
+        loading={s.loading || art.loading}
+        onSubmit={(v) => {
+          if (isOtherLink(v)) {
+            s.setData(null);
+            s.setError(null);
+            art.run(() => apiGet<ArtworkRes>("/thumb/any", { url: v }));
+          } else {
+            art.setData(null);
+            art.setError(null);
+            s.run(() => apiGet<YTChannel>("/yt/channel", { url: v }));
+          }
+        }}
+      />
+      <SupportedSources />
+      <ErrorBox error={s.error || art.error} />
+      {(s.loading || art.loading) && <Spinner />}
+      {art.data && <ArtworkResults data={art.data} />}
       {c && (
         <div className="mt-6 space-y-4">
           <h2 className="font-extrabold text-xl text-gray-900">{c.title}</h2>
@@ -259,23 +343,31 @@ export function ThumbnailDownloader() {
   const [id, setId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [missing, setMissing] = useState<Set<string>>(new Set());
+  const art = useAsync<ArtworkRes>();
   const sizes: [string, string][] = [["maxresdefault", "Max resolution · 1280×720"], ["sddefault", "Standard · 640×480"], ["hqdefault", "High · 480×360"], ["mqdefault", "Medium · 320×180"], ["default", "Small · 120×90"]];
   return (
     <Card>
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (!url.trim()) return;
           const v = videoIdOf(url);
-          setErr(v ? null : "Please paste a valid YouTube video or Shorts link.");
           setMissing(new Set());
           setId(v);
+          setErr(null);
+          art.setData(null);
+          art.setError(null);
+          if (!v) art.run(() => apiGet<ArtworkRes>("/thumb/any", { url }));
         }}
         className="flex flex-col sm:flex-row gap-3"
       >
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a YouTube video or Shorts link" className="input-field flex-1" />
-        <button type="submit" className="btn-primary !px-8 !py-3 !text-lg">Get thumbnails</button>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a YouTube, Spotify, Apple Music, JioSaavn or any link" className="input-field flex-1" />
+        <button type="submit" disabled={art.loading} className="btn-primary !px-8 !py-3 !text-lg">{art.loading ? "Getting…" : "Get thumbnails"}</button>
       </form>
-      <ErrorBox error={err} />
+      <SupportedSources />
+      <ErrorBox error={err || art.error} />
+      {art.loading && <Spinner />}
+      {art.data && <ArtworkResults data={art.data} />}
       {id && (
         <div className="mt-6 grid sm:grid-cols-2 gap-4">
           {sizes.filter(([k]) => !missing.has(k)).map(([k, label]) => (

@@ -70,8 +70,8 @@ export const creatorTools: CreatorTool[] = [
   { slug: "youtube-video-downloader", name: "YouTube Video Downloader", icon: "🎬", category: DL, badge: "New", description: "Download YouTube videos as MP4 in 4K, 2K, 1080p, 720p and more." },
   { slug: "youtube-to-mp3", name: "YouTube to MP3", icon: "🎧", category: DL, badge: "New", description: "Convert YouTube videos to MP3 (320 kbps) or M4A audio." },
   { slug: "youtube-shorts-downloader", name: "Shorts Downloader", icon: "📱", category: DL, badge: "New", description: "Download YouTube Shorts in HD as MP4 or MP3." },
-  { slug: "youtube-banner-downloader", name: "Banner Downloader", icon: "🖼️", category: DL, description: "Download a channel's banner and profile picture in full size." },
-  { slug: "youtube-thumbnail-downloader", name: "Thumbnail Downloader", icon: "📸", category: DL, description: "Download video thumbnails in every available resolution." },
+  { slug: "youtube-banner-downloader", name: "Banner Downloader", icon: "🖼️", category: DL, description: "Download a YouTube channel banner and profile picture, or artist art from Spotify, Apple Music and more." },
+  { slug: "youtube-thumbnail-downloader", name: "Thumbnail Downloader", icon: "📸", category: DL, description: "Download thumbnails and cover art from YouTube, Spotify, Apple Music, JioSaavn, SoundCloud and any link." },
 
   { slug: "youtube-comment-picker", name: "Comment Picker", icon: "🎁", category: ENG, description: "Pick random giveaway winners from a video's comments, with fair filters." },
   { slug: "youtube-comments-downloader", name: "Comments Downloader", icon: "💬", category: ENG, badge: "New", description: "Search, sort and export comments and replies to CSV/Excel." },

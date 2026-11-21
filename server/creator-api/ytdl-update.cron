@@ -1,0 +1,2 @@
+# keep yt-dlp current for the tools.bainslamusic.com video downloader
+17 4 * * * root /opt/ytdl/venv/bin/pip install -q -U "yt-dlp[default]" >/var/log/ytdl-update.log 2>&1

@@ -1,0 +1,14 @@
+[Unit]
+Description=bgutil PO token provider for yt-dlp (tools.bainslamusic.com video downloader)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/bgutil-pot/server/node_modules
+ExecStart=/usr/local/bin/deno run --allow-env --allow-net --allow-ffi=. --allow-read=. ../src/main.ts --port 4416 --host 127.0.0.1
+Restart=always
+RestartSec=3
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

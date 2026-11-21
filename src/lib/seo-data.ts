@@ -15,7 +15,7 @@ export const seoData: Record<string, SeoEntry> = {
     kind: "hub",
     title: "Free PDF Tools, Audio Converter, Background Remover & YouTube Tools",
     description:
-      "100+ free online tools in one place: merge, split, compress and convert PDF, audio converter and cutter, AI background remover, YouTube tags, titles, channel ID finder and more. No sign-up.",
+      "75+ free online tools in one place: merge, split, compress and convert PDF, audio converter and cutter, AI background remover, YouTube tags, titles, channel ID finder and more. No sign-up.",
     keywords: ["free online tools", "pdf tools", "pdf converter", "audio converter", "background remover", "youtube tools", "youtube tag generator", "channel id finder"],
   },
   "/audio-tools": {

@@ -1174,7 +1174,7 @@ _dl_info_sem = asyncio.Semaphore(int(os.environ.get("DL_INFO_CONCURRENCY", "4"))
 def _dl_cleanup():
     now = time.time()
     for jid, j in list(_dl_jobs.items()):
-        if now - j["created"] > DL_TTL and j["state"] in ("done", "error"):
+        if now - j.get("finished", j["created"]) > DL_TTL and j["state"] in ("done", "error"):
             _dl_jobs.pop(jid, None)
             shutil.rmtree(DL_DIR / jid, ignore_errors=True)
     if DL_DIR.is_dir():
@@ -1306,7 +1306,7 @@ async def _dl_run(jid: str, vid: str, kind: str, quality: str, vertical: bool):
             await _dl_attempt(jid, vid, kind, quality, vertical, 1)
         except Exception as e:  # never leave a job stuck "downloading"
             print(f"yt-dlp download {vid} crashed: {e!r}", flush=True)
-            _dl_jobs[jid].update(state="error", error="Download failed. Please try again.")
+            _dl_jobs[jid].update(state="error", error="Download failed. Please try again.", finished=time.time())
             shutil.rmtree(DL_DIR / jid, ignore_errors=True)
 
 
@@ -1355,14 +1355,14 @@ async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, vertical: boo
     if proc.returncode != 0 or not files:
         msg = " ".join(tail)
         err = "YouTube refused this download. Please try again in a minute." if "403" in msg else "Download failed. Please try another quality."
-        job.update(state="error", error=err)
+        job.update(state="error", error=err, finished=time.time())
         shutil.rmtree(outdir, ignore_errors=True)
         return
     f = max(files, key=lambda p: p.stat().st_size)
     f.chmod(0o644)
     label = f"{quality}p" if kind == "video" else quality
     safe = re.sub(r'[\\/:*?"<>|\r\n]+', " ", job["title"]).strip()[:120] or vid
-    job.update(state="done", percent=100, file=f.name, size=f.stat().st_size, filename=f"{safe} ({label}){f.suffix}")
+    job.update(state="done", percent=100, file=f.name, size=f.stat().st_size, filename=f"{safe} ({label}){f.suffix}", finished=time.time())
 
 
 @app.post("/dl/start")

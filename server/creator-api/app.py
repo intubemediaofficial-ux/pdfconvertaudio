@@ -1413,6 +1413,8 @@ async def _dl_run(jid: str, vid: str, kind: str, quality: str):
 async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, attempt: int):
     job = _dl_jobs[jid]
     outdir = DL_DIR / jid
+    if job.get("cancelled"):  # cancelled while waiting to retry
+        return
     job["state"] = "downloading"
     job["percent"] = 0
     proc = await asyncio.create_subprocess_exec(
@@ -1449,6 +1451,7 @@ async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, attempt: int)
         job.update(state="error", error="The download took too long. Please try a lower quality.")
         return
     if job.get("cancelled"):
+        job.update(state="error", error="Cancelled.", finished=time.time())
         return
     msg = " ".join(tail)
     if "does not pass filter" in msg:

@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, Response
 
 YT_KEYS = [k.strip() for k in os.environ.get("YOUTUBE_API_KEYS", os.environ.get("YOUTUBE_API_KEY", "")).split(",") if k.strip()]
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "gemini-3.5-flash,gemini-3.8-flash").split(",") if m.strip()]
+GEMINI_MODELS = [m.strip() for m in os.environ.get("GEMINI_MODELS", "gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash,gemini-2.5-flash,gemini-flash-latest").split(",") if m.strip()]
 DATA_DIR = Path(os.environ.get("CREATOR_DATA_DIR", "/var/lib/creator-api"))
 YT = "https://www.googleapis.com/youtube/v3"
 
@@ -75,18 +75,17 @@ class YTError(Exception):
     pass
 
 
-_key_index = 0
+_key_blocked_until: dict[str, float] = {}
 
 
 async def yt(endpoint: str, **params):
-    global _key_index
+    """Try keys in order; a key that ran out of quota is skipped for an hour, so the primary key is used again after the daily reset."""
     if not YT_KEYS:
         raise HTTPException(503, "YouTube data is not configured yet.")
     last = None
-    start = _key_index
-    for attempt in range(len(YT_KEYS)):
-        idx = (start + attempt) % len(YT_KEYS)
-        key = YT_KEYS[idx]
+    for key in YT_KEYS:
+        if _key_blocked_until.get(key, 0) > time.time():
+            continue
         r = await client.get(f"{YT}/{endpoint}", params={**params, "key": key})
         if r.status_code == 200:
             return r.json()
@@ -97,7 +96,7 @@ async def yt(endpoint: str, **params):
         reason = (err.get("errors") or [{}])[0].get("reason", "")
         last = err.get("message") or r.text[:200]
         if reason in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"):
-            _key_index = idx + 1
+            _key_blocked_until[key] = time.time() + (60 if reason == "rateLimitExceeded" else 3600)
             continue
         if r.status_code == 404 or reason in ("videoNotFound", "playlistNotFound", "channelNotFound"):
             raise HTTPException(404, "Not found on YouTube. Check the link.")
@@ -174,7 +173,12 @@ _categories: dict[str, str] = {}
 
 async def category_names(region="IN") -> dict[str, str]:
     if not _categories:
-        data = await yt("videoCategories", part="snippet", regionCode=region)
+        try:
+            data = await yt("videoCategories", part="snippet", regionCode=region)
+        except HTTPException as e:
+            if e.status_code == 503:
+                return {}
+            raise
         for it in data.get("items", []):
             _categories[it["id"]] = it["snippet"]["title"]
         _categories.setdefault("29", "Nonprofits & Activism")
@@ -216,14 +220,82 @@ def map_video(it: dict, cats: dict[str, str]) -> dict:
     }
 
 
+WATCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cookie": "CONSENT=YES+1; SOCS=CAI",
+}
+_watch_sem = asyncio.Semaphore(4)
+
+
+async def video_from_watch_page(vid: str) -> dict | None:
+    """Quota-free fallback: read the public watch page when the API quota is used up."""
+    async with _watch_sem:
+        try:
+            r = await client.get(f"https://www.youtube.com/watch?v={vid}&hl=en", headers=WATCH_HEADERS)
+        except httpx.HTTPError:
+            return None
+    m = re.search(r"ytInitialPlayerResponse\s*=\s*(\{.+?\});(?:var |</script)", r.text)
+    if not m:
+        return None
+    try:
+        d = json.loads(m.group(1))
+    except ValueError:
+        return None
+    v = d.get("videoDetails") or {}
+    if v.get("videoId") != vid:
+        return None
+    mf = (d.get("microformat") or {}).get("playerMicroformatRenderer") or {}
+    best = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+    return {
+        "id": vid,
+        "url": f"https://www.youtube.com/watch?v={vid}",
+        "title": v.get("title", ""),
+        "description": v.get("shortDescription", ""),
+        "channelId": v.get("channelId", ""),
+        "channelTitle": v.get("author", ""),
+        "publishedAt": mf.get("publishDate", ""),
+        "tags": v.get("keywords", []),
+        "categoryId": "",
+        "category": mf.get("category", ""),
+        "defaultLanguage": "",
+        "liveBroadcastContent": "live" if v.get("isLive") else "none",
+        "thumbnails": {"high": best, "maxres": f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"},
+        "thumbnail": best,
+        "duration": int(v.get("lengthSeconds", 0) or 0),
+        "definition": "",
+        "caption": bool((d.get("captions") or {}).get("playerCaptionsTracklistRenderer")),
+        "licensedContent": False,
+        "dimension": "",
+        "privacyStatus": "unlisted" if mf.get("isUnlisted") else "public",
+        "embeddable": (d.get("playabilityStatus") or {}).get("playableInEmbed", True),
+        "madeForKids": False,
+        "license": "",
+        "views": int(v.get("viewCount", 0) or 0),
+        "likes": 0,
+        "comments": 0,
+        "topics": [],
+        "partial": True,
+    }
+
+
 async def videos_by_ids(ids: list[str]) -> list[dict]:
     cats = await category_names()
     out: list[dict] = []
     chunks = [ids[i:i + 50] for i in range(0, len(ids), 50)]
-    results = await asyncio.gather(*[
-        yt("videos", part="snippet,statistics,contentDetails,status,topicDetails", id=",".join(c), maxResults=50)
-        for c in chunks
-    ])
+    try:
+        results = await asyncio.gather(*[
+            yt("videos", part="snippet,statistics,contentDetails,status,topicDetails", id=",".join(c), maxResults=50)
+            for c in chunks
+        ])
+    except HTTPException as e:
+        if e.status_code != 503:
+            raise
+        scraped = await asyncio.gather(*[video_from_watch_page(i) for i in ids])
+        found = [x for x in scraped if x]
+        if not found:
+            raise
+        return found
     by_id = {}
     for data in results:
         for it in data.get("items", []):
@@ -264,6 +336,80 @@ def map_channel(it: dict) -> dict:
 CH_PARTS = "snippet,statistics,brandingSettings,contentDetails,status,topicDetails"
 
 
+def approx_count(text: str) -> int:
+    m = re.search(r"([\d.,]+)\s*([KMB]?)", text or "")
+    if not m:
+        return 0
+    n = float(m.group(1).replace(",", ""))
+    return int(n * {"K": 1e3, "M": 1e6, "B": 1e9}.get(m.group(2), 1))
+
+
+async def channel_from_page(s: str) -> dict | None:
+    """Quota-free fallback: read the public channel page when the API quota is used up."""
+    m = re.search(r"(UC[\w-]{22})", s)
+    h = re.search(r"youtube\.com/@([^/?&#\s]+)", s) or re.fullmatch(r"@([^/?&#\s]+)", s)
+    u = re.search(r"youtube\.com/(?:user|c)/([^/?&#\s]+)", s)
+    if m:
+        path = "channel/" + m.group(1)
+    elif h:
+        path = "@" + h.group(1)
+    elif u:
+        path = ("user/" if "/user/" in s else "c/") + u.group(1)
+    else:
+        try:
+            vid = video_id_of(s) if ("youtu" in s or re.fullmatch(r"[\w-]{11}", s)) else None
+        except HTTPException:
+            vid = None
+        v = await video_from_watch_page(vid) if vid else None
+        if not v or not v.get("channelId"):
+            return None
+        path = "channel/" + v["channelId"]
+    try:
+        r = await client.get(f"https://www.youtube.com/{quote(path, safe='/@')}?hl=en", headers=WATCH_HEADERS)
+    except httpx.HTTPError:
+        return None
+    mm = re.search(r"var ytInitialData\s*=\s*(\{.+?\});</script", r.text)
+    if r.status_code != 200 or not mm:
+        return None
+    try:
+        d = json.loads(mm.group(1))
+    except ValueError:
+        return None
+    md = (d.get("metadata") or {}).get("channelMetadataRenderer") or {}
+    cid = md.get("externalId", "")
+    if not cid:
+        return None
+    header = json.dumps(d.get("header") or {})
+    subs = re.search(r'"content":\s*"([\d.,]+[KMB]?) subscribers?"', header)
+    vids = re.search(r'"content":\s*"([\d.,]+[KMB]?) videos?"', header)
+    banner = re.search(r'"imageBannerViewModel":\s*\{"image":\s*\{"sources":\s*\[\{"url":\s*"([^"]+)"', header)
+    avatars = (md.get("avatar") or {}).get("thumbnails") or []
+    vanity = md.get("vanityChannelUrl", "")
+    kw = md.get("keywords", "")
+    return {
+        "id": cid,
+        "url": f"https://www.youtube.com/channel/{cid}",
+        "title": md.get("title", ""),
+        "handle": vanity.rsplit("/", 1)[-1] if "/@" in vanity else "",
+        "description": md.get("description", ""),
+        "publishedAt": "",
+        "country": "",
+        "thumbnail": avatars[-1]["url"] if avatars else "",
+        "thumbnails": {"high": avatars[-1]["url"]} if avatars else {},
+        "banner": re.sub(r"=w\d+.*$", "", banner.group(1)) if banner else "",
+        "keywords": parse_keywords(kw),
+        "keywordsRaw": kw,
+        "subscribers": approx_count(subs.group(1)) if subs else 0,
+        "hiddenSubscribers": not subs,
+        "views": 0,
+        "videos": approx_count(vids.group(1)) if vids else 0,
+        "uploads": "UU" + cid[2:],
+        "madeForKids": False,
+        "topics": [],
+        "partial": True,
+    }
+
+
 async def resolve_channel(raw: str) -> dict:
     s = (raw or "").strip()
     if not s:
@@ -272,6 +418,21 @@ async def resolve_channel(raw: str) -> dict:
     hit = cache_get(key)
     if hit:
         return hit
+    try:
+        ch = await resolve_channel_api(s)
+    except HTTPException as e:
+        if e.status_code != 503:
+            raise
+        ch = await channel_from_page(s)
+        if not ch:
+            raise
+        cache_set(key, ch, 600)
+        return ch
+    cache_set(key, ch, 1800)
+    return ch
+
+
+async def resolve_channel_api(s: str) -> dict:
     params = None
     m = re.search(r"(UC[\w-]{22})", s)
     if m:
@@ -305,9 +466,7 @@ async def resolve_channel(raw: str) -> dict:
         data = await yt("channels", part=CH_PARTS, id=cid)
     if not data.get("items"):
         raise HTTPException(404, "Channel not found.")
-    ch = map_channel(data["items"][0])
-    cache_set(key, ch, 1800)
-    return ch
+    return map_channel(data["items"][0])
 
 
 async def playlist_videos(playlist_id: str, limit: int) -> list[str]:

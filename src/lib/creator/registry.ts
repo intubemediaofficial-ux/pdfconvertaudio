@@ -67,6 +67,9 @@ export const creatorTools: CreatorTool[] = [
   { slug: "youtube-category-checker", name: "Category Checker", icon: "🗃️", category: UTL, badge: "New", description: "Check the official category of one video, many videos or a whole channel." },
   { slug: "youtube-channel-video-list", name: "Channel Video List Extractor", icon: "📋", category: UTL, description: "Export every public video of a channel with views, likes and dates." },
 
+  { slug: "youtube-video-downloader", name: "YouTube Video Downloader", icon: "🎬", category: DL, badge: "New", description: "Download YouTube videos as MP4 in 4K, 2K, 1080p, 720p and more." },
+  { slug: "youtube-to-mp3", name: "YouTube to MP3", icon: "🎧", category: DL, badge: "New", description: "Convert YouTube videos to MP3 (320 kbps) or M4A audio." },
+  { slug: "youtube-shorts-downloader", name: "Shorts Downloader", icon: "📱", category: DL, badge: "New", description: "Download YouTube Shorts in HD as MP4 or MP3." },
   { slug: "youtube-banner-downloader", name: "Banner Downloader", icon: "🖼️", category: DL, description: "Download a channel's banner and profile picture in full size." },
   { slug: "youtube-thumbnail-downloader", name: "Thumbnail Downloader", icon: "📸", category: DL, description: "Download video thumbnails in every available resolution." },
 

@@ -182,7 +182,7 @@ export default function HomeClient({ h1, faqs }: { h1: string; faqs: [string, st
               />
             </div>
             {q.trim() && (
-              <div className="absolute z-20 mt-2 w-full rounded-2xl bg-white text-gray-900 shadow-2xl overflow-hidden border border-gray-100">
+              <div className="absolute z-20 mt-2 w-full max-h-[min(22rem,45vh)] overflow-y-auto rounded-2xl bg-white text-gray-900 shadow-2xl border border-gray-100">
                 {results.length ? (
                   results.map((t) => (
                     <Link key={t.href} href={t.href} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0">

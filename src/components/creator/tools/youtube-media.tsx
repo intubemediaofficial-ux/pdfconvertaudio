@@ -65,6 +65,7 @@ export function MediaDownloader({ initialTab = "video", placeholder = "Paste a Y
     setStatus({ state: "queued", percent: 0 });
     try {
       const r = await apiPost<{ job: string }>("/dl/start", { url: info.id, kind, quality });
+      fired.current = null;
       setJob({ id: r.job, label });
     } catch (e) {
       setStatus(null);

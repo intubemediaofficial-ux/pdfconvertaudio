@@ -1168,6 +1168,7 @@ DL_HEIGHTS = (2160, 1440, 1080, 720, 480, 360, 240, 144)
 DL_AUDIO = {"mp3-320": ("mp3", "320K"), "mp3-192": ("mp3", "192K"), "mp3-128": ("mp3", "128K"), "m4a": ("m4a", None)}
 _dl_jobs: dict[str, dict] = {}
 _dl_sem = asyncio.Semaphore(int(os.environ.get("DL_CONCURRENCY", "3")))
+_dl_info_sem = asyncio.Semaphore(int(os.environ.get("DL_INFO_CONCURRENCY", "4")))
 
 
 def _dl_cleanup():
@@ -1199,6 +1200,11 @@ async def _ytdlp_json(vid: str) -> dict:
 
 
 async def _ytdlp_json_once(vid: str) -> dict:
+    async with _dl_info_sem:
+        return await _ytdlp_json_run(vid)
+
+
+async def _ytdlp_json_run(vid: str) -> dict:
     proc = await asyncio.create_subprocess_exec(
         YTDLP, "-J", "--no-warnings", "--no-playlist", "--ignore-no-formats-error", f"https://www.youtube.com/watch?v={vid}",
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,

@@ -1174,12 +1174,13 @@ _dl_info_sem = asyncio.Semaphore(int(os.environ.get("DL_INFO_CONCURRENCY", "4"))
 def _dl_cleanup():
     now = time.time()
     for jid, j in list(_dl_jobs.items()):
-        if now - j["created"] > DL_TTL:
+        if now - j["created"] > DL_TTL and j["state"] in ("done", "error"):
             _dl_jobs.pop(jid, None)
+            shutil.rmtree(DL_DIR / jid, ignore_errors=True)
     if DL_DIR.is_dir():
         for d in DL_DIR.iterdir():
             try:
-                if d.is_dir() and now - d.stat().st_mtime > DL_TTL:
+                if d.is_dir() and d.name not in _dl_jobs and now - d.stat().st_mtime > DL_TTL:
                     shutil.rmtree(d, ignore_errors=True)
             except OSError:
                 pass
@@ -1225,6 +1226,15 @@ async def _ytdlp_json_run(vid: str) -> dict:
             raise HTTPException(400, "Members-only videos cannot be downloaded.")
         raise HTTPException(502, "Could not read this video from YouTube. Please try again.")
     return json.loads(out)
+
+
+@app.on_event("startup")
+async def _dl_cleanup_loop():
+    async def loop():
+        while True:
+            _dl_cleanup()
+            await asyncio.sleep(600)
+    asyncio.create_task(loop())
 
 
 @app.get("/dl/info")
@@ -1381,6 +1391,7 @@ async def dl_start(request: Request):
 
 @app.get("/dl/status/{jid}")
 async def dl_status(jid: str):
+    _dl_cleanup()
     j = _dl_jobs.get(jid)
     if not j:
         raise HTTPException(404, "This download has expired. Please start it again.")
@@ -1389,6 +1400,7 @@ async def dl_status(jid: str):
 
 @app.get("/dl/file/{jid}")
 async def dl_file(jid: str):
+    _dl_cleanup()
     j = _dl_jobs.get(jid)
     if not j or j.get("state") != "done" or not re.fullmatch(r"[0-9a-f]{32}", jid):
         raise HTTPException(404, "This download has expired. Please start it again.")

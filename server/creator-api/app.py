@@ -925,6 +925,270 @@ async def img(url: str, name: str = ""):
     return Response(r.content, media_type=ctype, headers=headers)
 
 
+# ---------------------------------------------------------------- any-link artwork (Spotify, Apple Music, JioSaavn, SoundCloud, ...)
+
+import html as _html
+import ipaddress
+import socket
+from urllib.parse import urljoin
+
+THUMB_UAS = (
+    "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+)
+THUMB_SKIP = re.compile(r"(logo|favicon|apple-touch-icon|/icon[-_.]|/_next/static/|placeholder|default[-_]?(image|share|og))", re.I)
+META_RE = re.compile(r"<(meta|link)\b[^>]*>", re.I)
+ATTR_RE = re.compile(r"([\w:-]+)\s*=\s*(\"[^\"]*\"|'[^']*')")
+
+
+RASTER_TYPES = ("image/jpeg", "image/png", "image/webp", "image/gif", "image/avif")
+_thumb_ok: dict[str, float] = {}
+
+
+def _approve(url: str):
+    now = time.time()
+    if len(_thumb_ok) > 20000:
+        for k in [k for k, exp in _thumb_ok.items() if exp < now] or list(_thumb_ok)[:5000]:
+            _thumb_ok.pop(k, None)
+    _thumb_ok[url] = now + 6 * 3600
+
+
+def _approved(url: str) -> bool:
+    return _thumb_ok.get(url, 0) > time.time()
+
+
+async def _public_ips(url: str) -> list:
+    """Resolve the URL's host once; return its addresses (IPv4 first) only if every one is public."""
+    p = urlparse(url)
+    if p.scheme not in ("http", "https") or not p.hostname or p.port not in (None, 80, 443):
+        return []
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(p.hostname, p.port or (443 if p.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        ips = list(dict.fromkeys(ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos))
+    except (OSError, ValueError, UnicodeError):
+        return []
+    if not ips or not all(ip.is_global for ip in ips):
+        return []
+    return sorted(ips, key=lambda ip: ip.version)[:4]
+
+
+# No keep-alive: connections are pinned to an IP, so a pooled one could carry another host's SNI.
+_thumb_client = httpx.AsyncClient(timeout=12, limits=httpx.Limits(max_keepalive_connections=0))
+
+
+async def _safe_fetch(url: str, ua: str, limit: int, accept: str = "*/*"):
+    """GET a public URL. Every redirect hop is resolved once, checked, and the connection pinned to that IP
+    (Host header + TLS SNI keep the real hostname), so DNS rebinding can't reach internal addresses.
+    Returns (status, content-type, body, final_url, truncated)."""
+    for _ in range(6):
+        ips = await _public_ips(url)
+        if not ips:
+            raise HTTPException(400, "This link can't be opened.")
+        p = urlparse(url)
+        try:
+            host = p.hostname.encode("idna").decode("ascii")
+        except UnicodeError:
+            raise HTTPException(400, "This link can't be opened.")
+        port = f":{p.port}" if p.port else ""
+        last_err = None
+        for ip in ips:
+            pinned = p._replace(netloc=(f"[{ip}]" if ip.version == 6 else str(ip)) + port).geturl()
+            try:
+                async with _thumb_client.stream("GET", pinned, follow_redirects=False, extensions={"sni_hostname": host},
+                                                headers={"Host": host + port, "User-Agent": ua, "Accept": accept, "Accept-Language": "en-US,en;q=0.8"}) as r:
+                    if r.is_redirect and r.headers.get("location"):
+                        url = urljoin(url, r.headers["location"])
+                        break
+                    body, truncated = bytearray(), False
+                    async for chunk in r.aiter_bytes():
+                        body += chunk
+                        if len(body) > limit:
+                            truncated = True
+                            break
+                    return r.status_code, r.headers.get("content-type", ""), bytes(body[:limit]), url, truncated
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                last_err = e
+        else:
+            raise last_err or HTTPException(400, "This link can't be opened.")
+    raise HTTPException(400, "Too many redirects.")
+
+
+def _page_meta(page: str, base: str):
+    imgs, title, oembed = [], "", ""
+    for m in META_RE.finditer(page[:600_000]):
+        a = {k.lower(): _html.unescape(_html.unescape(v[1:-1])).strip() for k, v in ATTR_RE.findall(m.group(0))}
+        key = (a.get("property") or a.get("name") or a.get("itemprop") or "").lower()
+        if m.group(1).lower() == "meta":
+            val = a.get("content", "")
+            if key in ("og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src", "image", "thumbnailurl") and val:
+                imgs.append(urljoin(base, val))
+            elif key in ("og:title", "twitter:title") and val and not title:
+                title = val
+        else:
+            rel, typ = a.get("rel", "").lower(), a.get("type", "").lower()
+            if rel == "image_src" and a.get("href"):
+                imgs.append(urljoin(base, a["href"]))
+            elif "oembed" in typ and "json" in typ and a.get("href"):
+                oembed = urljoin(base, a["href"])
+    if not title:
+        t = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+        title = _html.unescape(t.group(1)).strip() if t else ""
+    return imgs, re.sub(r"\s+", " ", title)[:200], oembed
+
+
+def _variants(u: str):
+    """Bigger / alternative sizes of an artwork URL for known CDNs, best first."""
+    h = urlparse(u).hostname or ""
+    out = []
+    if h == "i.scdn.co":
+        m = re.match(r"(https://i\.scdn\.co/image/)(ab67616d|ab676161|ab6765630000|ab67706c)(\w+)", u)
+        sizes = {"ab67616d": [("000082c1", "Original"), ("0000b273", "Large · 640×640"), ("00001e02", "Medium · 300×300"), ("00004851", "Small · 64×64")],
+                 "ab676161": [("0000e5eb", "Large · 640×640"), ("00005174", "Medium · 320×320"), ("0000f178", "Small · 160×160")]}
+        if m and m.group(2) in sizes:
+            key = m.group(3)[8:]
+            out = [(f"{m.group(1)}{m.group(2)}{s}{key}", l) for s, l in sizes[m.group(2)]]
+    elif h.endswith("mzstatic.com"):
+        b = re.sub(r"/[^/]+$", "", u)
+        out = [(f"{b}/3000x3000bb.jpg", "Original · 3000×3000"), (f"{b}/1400x1400bb.jpg", "Large · 1400×1400"), (f"{b}/600x600bb.jpg", "Medium · 600×600")]
+    elif h.endswith("sndcdn.com"):
+        out = [(re.sub(r"-(t\d+x\d+|large|crop|original)\.", f"-{s}.", u), l) for s, l in (("original", "Original"), ("t500x500", "Large · 500×500"), ("t300x300", "Medium · 300×300"))]
+    elif h.endswith("saavncdn.com"):
+        out = [(re.sub(r"-\d+x\d+\.(jpg|png|webp)", f"-{s}.\\1", u), l) for s, l in (("500x500", "Large · 500×500"), ("150x150", "Medium · 150×150"))]
+    elif h.endswith("dzcdn.net"):
+        out = [(re.sub(r"/\d+x\d+[^/]*$", f"/{s}x{s}-000000-80-0-0.jpg", u), f"{s}×{s}") for s in ("1900", "1000", "500")]
+    elif h.endswith("gaanacdn.com"):
+        out = [(re.sub(r"size_[a-z]+", f"size_{s}", u), l) for s, l in (("xl", "Extra large"), ("l", "Large"), ("m", "Medium"))]
+    elif h.endswith(("googleusercontent.com", "ggpht.com")) and "=" in u:
+        out = [(re.sub(r"=[^=/]*$", "=s0", u), "Original"), (re.sub(r"=[^=/]*$", "=s900-c-k-c0x00ffffff-no-rj", u), "900×900")]
+    return out + [(u, "Original")]
+
+
+async def _image_ok(u: str) -> bool:
+    try:
+        code, ctype, body, _, _ = await _safe_fetch(u, THUMB_UAS[1], 2048, "image/*")
+    except (HTTPException, httpx.HTTPError):
+        return False
+    return code == 200 and ctype.split(";")[0].strip().lower() in RASTER_TYPES and len(body) > 200
+
+
+def _platform(host: str) -> str:
+    for k, v in (("spotify", "Spotify"), ("apple.com", "Apple Music"), ("jiosaavn", "JioSaavn"), ("saavn", "JioSaavn"), ("gaana", "Gaana"),
+                 ("soundcloud", "SoundCloud"), ("deezer", "Deezer"), ("instagram", "Instagram"), ("youtube", "YouTube"), ("youtu.be", "YouTube"),
+                 ("vimeo", "Vimeo"), ("wynk", "Wynk"), ("amazon", "Amazon Music"), ("tidal", "Tidal"), ("facebook", "Facebook"), ("twitter", "X"), ("x.com", "X")):
+        if k in host:
+            return v
+    return host.removeprefix("www.")
+
+
+async def _loadable(cands) -> list:
+    seen, uniq = set(), []
+    for c in cands:
+        if c[0] not in seen:
+            seen.add(c[0])
+            uniq.append(c)
+    uniq = uniq[:10]
+    ok = await asyncio.gather(*[_image_ok(u) for u, _ in uniq])
+    images, labels = [], set()
+    for (u, label), good in zip(uniq, ok):
+        if good and label not in labels:
+            labels.add(label)
+            images.append({"url": u, "label": label})
+    return images
+
+
+def _expand(imgs) -> list:
+    return [v for i in imgs[:3] for v in _variants(i)]
+
+
+@app.get("/thumb/any")
+async def thumb_any(url: str):
+    url = url.strip()
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    host = (urlparse(url).hostname or "").lower()
+    cached = cache_get("thumb:" + url)
+    if cached:
+        for im in cached["images"]:
+            _approve(im["url"])
+        return cached
+    title, images, found = "", [], False
+    vid = None
+    if "youtu" in host:
+        try:
+            vid = video_id_of(url)
+        except HTTPException:
+            vid = None
+    if vid:
+        try:
+            r = await client.get("https://www.youtube.com/oembed", params={"url": f"https://www.youtube.com/watch?v={vid}", "format": "json"}, timeout=5)
+            title = r.json().get("title", "") if r.status_code == 200 else ""
+        except (httpx.HTTPError, ValueError):
+            pass
+        found = True
+        images = await _loadable([(f"https://i.ytimg.com/vi/{vid}/{k}.jpg", l) for k, l in (("maxresdefault", "Max resolution · 1280×720"), ("sddefault", "Standard · 640×480"), ("hqdefault", "High · 480×360"), ("mqdefault", "Medium · 320×180"))])
+    else:
+        oembed = ""
+        for ua in THUMB_UAS:
+            try:
+                code, ctype, body, final, _ = await _safe_fetch(url, ua, 1_500_000, "text/html,*/*")
+            except httpx.HTTPError:
+                continue
+            if code != 200:
+                continue
+            if ctype.startswith("image/"):
+                imgs = [final]
+            else:
+                i, t, o = _page_meta(body.decode("utf-8", "ignore"), final)
+                title, oembed = title or t, oembed or o
+                imgs = [x for x in i if not THUMB_SKIP.search(x)]
+            if imgs:
+                found = True
+                images = await _loadable(_expand(imgs))
+                if images:
+                    break
+        if not images and oembed:
+            try:
+                code, _, body, _, _ = await _safe_fetch(oembed, THUMB_UAS[1], 300_000, "application/json")
+                d = json.loads(body) if code == 200 else {}
+                title = title or d.get("title", "")
+                if d.get("thumbnail_url"):
+                    found = True
+                    images = await _loadable(_expand([d["thumbnail_url"]]))
+            except (httpx.HTTPError, ValueError, AttributeError):
+                pass
+    if not images:
+        if not found:
+            raise HTTPException(404, "No thumbnail found on this link. It may be private, need a login, or not have cover art.")
+        raise HTTPException(404, "The thumbnail on this link couldn't be loaded. Please try another link.")
+    for im in images:
+        _approve(im["url"])
+    data = {"platform": _platform(host), "title": title, "images": images}
+    cache_set("thumb:" + url, data, 3600)
+    return data
+
+
+@app.get("/thumb/img")
+async def thumb_img(url: str, name: str = ""):
+    if not _approved(url):
+        raise HTTPException(400, "Please get the thumbnail again.")
+    limit = 30_000_000
+    try:
+        code, ctype, body, _, truncated = await _safe_fetch(url, THUMB_UAS[1], limit, "image/*")
+    except httpx.HTTPError:
+        raise HTTPException(502, "Image could not be loaded. Please try again.")
+    ctype = ctype.split(";")[0].strip().lower()
+    if truncated:
+        raise HTTPException(413, "This image is larger than 30 MB.")
+    if code != 200 or ctype not in RASTER_TYPES:
+        raise HTTPException(404, "Image not available.")
+    headers = {"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"}
+    if name:
+        ext = {"image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif"}.get(ctype, "jpg")
+        safe = re.sub(r"[^\w.-]+", "_", re.sub(r"\.\w{3,4}$", "", name))[:90]
+        headers["Content-Disposition"] = f'attachment; filename="{safe}.{ext}"'
+    return Response(body, media_type=ctype, headers=headers)
+
+
 # ---------------------------------------------------------------- signature requests
 # Documents are kept on disk (never auto-deleted) under DATA_DIR/sign/<id>/.
 

@@ -29,6 +29,20 @@ export async function aiGenerate<T = { items: unknown[] }>(body: Record<string, 
   );
 }
 
+export async function apiPost<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  return parse<T>(
+    await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  );
+}
+
+export function apiUrl(path: string) {
+  return `${BASE}${path}`;
+}
+
 export function imgProxy(url: string, name?: string) {
   const qs = new URLSearchParams({ url, ...(name ? { name } : {}) });
   return `${BASE}/img?${qs.toString()}`;

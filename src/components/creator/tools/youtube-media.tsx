@@ -1,9 +1,190 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { apiGet, fmtDate, fmtNum, imgProxy, videoIdOf, type YTChannel, type YTComment, type YTVideo } from "@/lib/creator/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiGet, apiPost, apiUrl, fmtDuration, fmtDate, fmtNum, imgProxy, videoIdOf, type YTChannel, type YTComment, type YTVideo } from "@/lib/creator/api";
 import { safeName } from "@/lib/creator/export";
 import { Card, ErrorBox, ExportButtons, Field, SearchForm, Select, Spinner, Toggle, useAsync } from "../ui";
+
+type DlInfo = {
+  id: string;
+  title: string;
+  channel: string;
+  duration: number;
+  thumbnail: string;
+  vertical: boolean;
+  tooLong: boolean;
+  video: { height: number; size: number }[];
+  audio: { id: string; size: number }[];
+};
+type DlStatus = { state: "queued" | "downloading" | "processing" | "done" | "error"; percent: number; error?: string; size?: number; filename?: string };
+
+const QUALITY_LABEL: Record<number, string> = { 2160: "4K", 1440: "2K", 1080: "Full HD", 720: "HD" };
+const AUDIO_LABEL: Record<string, string> = { "mp3-320": "MP3 · 320 kbps", "mp3-192": "MP3 · 192 kbps", "mp3-128": "MP3 · 128 kbps", m4a: "M4A · original" };
+
+function fmtSize(b: number) {
+  if (!b) return "";
+  return b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`;
+}
+
+export function MediaDownloader({ initialTab = "video", placeholder = "Paste a YouTube video or Shorts link" }: { initialTab?: "video" | "audio"; placeholder?: string }) {
+  const s = useAsync<DlInfo>();
+  const [tab, setTab] = useState<"video" | "audio">(initialTab);
+  const [job, setJob] = useState<{ id: string; label: string } | null>(null);
+  const [status, setStatus] = useState<DlStatus | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const fired = useRef<string | null>(null);
+  const info = s.data;
+  const busy = !!job && !!status && !["done", "error"].includes(status.state);
+
+  useEffect(() => {
+    if (!job) return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        const st = await apiGet<DlStatus>(`/dl/status/${job.id}`);
+        if (stop) return;
+        setStatus(st);
+        if (st.state === "done" && fired.current !== job.id) {
+          fired.current = job.id;
+          window.location.href = apiUrl(`/dl/file/${job.id}`);
+        }
+        if (st.state !== "done" && st.state !== "error") setTimeout(tick, 1500);
+      } catch (e) {
+        if (!stop) setStatus({ state: "error", percent: 0, error: e instanceof Error ? e.message : "Download failed." });
+      }
+    };
+    tick();
+    return () => {
+      stop = true;
+    };
+  }, [job]);
+
+  const start = async (kind: "video" | "audio", quality: string, label: string) => {
+    if (!info || busy) return;
+    setErr(null);
+    setStatus({ state: "queued", percent: 0 });
+    try {
+      const r = await apiPost<{ job: string }>("/dl/start", { url: info.id, kind, quality });
+      setJob({ id: r.job, label });
+    } catch (e) {
+      setStatus(null);
+      setErr(e instanceof Error ? e.message : "Could not start the download.");
+    }
+  };
+
+  const btn = (key: string, title: string, sub: string, onClick: () => void) => (
+    <button
+      key={key}
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-left hover:border-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed min-w-0"
+    >
+      <span className="min-w-0">
+        <span className="block font-extrabold text-gray-900">{title}</span>
+        {sub && <span className="block text-xs text-gray-500">{sub}</span>}
+      </span>
+      <span className="btn-success !px-3 !py-1.5 !text-sm shrink-0">⬇</span>
+    </button>
+  );
+
+  return (
+    <Card>
+      <SearchForm
+        placeholder={placeholder}
+        button="Get video"
+        loading={s.loading}
+        onSubmit={(v) => {
+          setJob(null);
+          setStatus(null);
+          setErr(null);
+          s.run(() => apiGet<DlInfo>("/dl/info", { url: v }));
+        }}
+      />
+      <ErrorBox error={s.error} />
+      {s.loading && <Spinner label="Reading video…" />}
+      {info && (
+        <div className="mt-6 space-y-5">
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imgProxy(info.thumbnail)} alt={info.title} className="w-full sm:w-56 rounded-xl bg-gray-100 aspect-video object-cover" />
+            <div className="min-w-0">
+              <h2 className="font-extrabold text-lg text-gray-900 break-words">{info.title}</h2>
+              <p className="text-sm text-gray-600">
+                {info.channel}
+                {info.duration ? ` · ${fmtDuration(info.duration)}` : ""}
+              </p>
+            </div>
+          </div>
+          {info.tooLong ? (
+            <p className="text-gray-700">Videos longer than 4 hours cannot be downloaded.</p>
+          ) : (
+            <>
+              <div className="inline-flex rounded-xl bg-gray-100 p-1" role="tablist">
+                {(["video", "audio"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t}
+                    onClick={() => setTab(t)}
+                    className={`px-5 py-2 rounded-lg text-sm font-bold ${tab === t ? "bg-white shadow text-gray-900" : "text-gray-500"}`}
+                  >
+                    {t === "video" ? "🎬 Video (MP4)" : "🎧 Audio (MP3)"}
+                  </button>
+                ))}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {tab === "video"
+                  ? info.video.map((v) => {
+                      const label = `${v.height}p`;
+                      return btn(label, `${label}${QUALITY_LABEL[v.height] ? ` · ${QUALITY_LABEL[v.height]}` : ""}`, ["MP4", fmtSize(v.size) && `~${fmtSize(v.size)}`].filter(Boolean).join(" · "), () => start("video", String(v.height), label));
+                    })
+                  : info.audio.map((a) => btn(a.id, AUDIO_LABEL[a.id] || a.id, fmtSize(a.size) && `~${fmtSize(a.size)}`, () => start("audio", a.id, AUDIO_LABEL[a.id] || a.id)))}
+              </div>
+            </>
+          )}
+          <ErrorBox error={err} />
+          {status && job && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2" role="status">
+              {status.state === "error" ? (
+                <p className="text-red-700 font-semibold">{status.error || "Download failed."}</p>
+              ) : status.state === "done" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="font-semibold text-gray-800 break-all">✓ {status.filename} {status.size ? `· ${fmtSize(status.size)}` : ""}</span>
+                  <a href={apiUrl(`/dl/file/${job.id}`)} className="btn-success !px-4 !py-2 !text-sm">⬇ Download again</a>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between text-sm font-semibold text-gray-700">
+                    <span>{status.state === "queued" ? "Waiting in queue…" : status.state === "processing" ? "Preparing file…" : `Downloading ${job.label}…`}</span>
+                    <span>{Math.round(status.percent || 0)}%</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-gray-200 overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-orange-400 via-rose-500 to-violet-500 transition-all" style={{ width: `${Math.max(3, status.percent || 0)}%` }} />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-gray-500">Only download videos you own or have permission to use. Files are deleted from our server after 3 hours.</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function VideoDownloader() {
+  return <MediaDownloader />;
+}
+
+export function YouTubeToMp3() {
+  return <MediaDownloader initialTab="audio" />;
+}
+
+export function ShortsDownloader() {
+  return <MediaDownloader placeholder="Paste a YouTube Shorts link" />;
+}
 
 function DownloadImage({ src, name, label }: { src: string; name: string; label: string }) {
   return (

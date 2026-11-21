@@ -1150,3 +1150,269 @@ async def complete_sign_request(request: Request, rid: str, pdf: UploadFile = Fi
     meta["emailed"] = sent
     save_meta(p, meta)
     return {"ok": True, "emailed": sent, "download": dl}
+
+
+# ---------------------------------------------------------------- YouTube video / audio downloader
+# yt-dlp (own venv, with the bgutil PO-token plugin talking to bgutil-pot.service on :4416).
+# Finished files are served by nginx via X-Accel-Redirect from DL_DIR and removed after DL_TTL.
+
+import shutil
+import uuid
+from urllib.parse import quote as url_quote
+
+YTDLP = os.environ.get("YTDLP_BIN", "/opt/ytdl/venv/bin/yt-dlp")
+DL_DIR = Path(os.environ.get("DL_DIR", "/var/cache/ytdl"))
+DL_TTL = 3 * 3600
+DL_MAX_SECONDS = 4 * 3600
+DL_HEIGHTS = (2160, 1440, 1080, 720, 480, 360, 240, 144)
+DL_AUDIO = {"mp3-320": ("mp3", "320K"), "mp3-192": ("mp3", "192K"), "mp3-128": ("mp3", "128K"), "m4a": ("m4a", None)}
+_dl_jobs: dict[str, dict] = {}
+_dl_sem = asyncio.Semaphore(int(os.environ.get("DL_CONCURRENCY", "4")))
+_dl_info_sem = asyncio.Semaphore(int(os.environ.get("DL_INFO_CONCURRENCY", "4")))
+
+
+def _dl_cleanup():
+    now = time.time()
+    for jid, j in list(_dl_jobs.items()):
+        if now - j.get("finished", j["created"]) > DL_TTL and j["state"] in ("done", "error"):
+            _dl_jobs.pop(jid, None)
+            shutil.rmtree(DL_DIR / jid, ignore_errors=True)
+    if DL_DIR.is_dir():
+        for d in DL_DIR.iterdir():
+            try:
+                if d.is_dir() and d.name not in _dl_jobs and now - d.stat().st_mtime > DL_TTL:
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
+
+
+def _has_video(j: dict) -> bool:
+    return any(f.get("height") and f.get("vcodec") not in (None, "none") and f.get("protocol") != "mhtml" for f in j.get("formats") or [])
+
+
+async def _ytdlp_json(vid: str) -> dict:
+    # YouTube sometimes answers a server request with no usable formats; a retry usually gets them.
+    j: dict = {}
+    for _ in range(3):
+        j = await _ytdlp_json_once(vid)
+        if _has_video(j):
+            break
+    return j
+
+
+async def _ytdlp_json_once(vid: str) -> dict:
+    async with _dl_info_sem:
+        return await _ytdlp_json_run(vid)
+
+
+async def _ytdlp_json_run(vid: str) -> dict:
+    proc = await asyncio.create_subprocess_exec(
+        YTDLP, "-J", "--no-warnings", "--no-playlist", "--ignore-no-formats-error", f"https://www.youtube.com/watch?v={vid}",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), 90)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise HTTPException(504, "YouTube took too long to answer. Please try again.")
+    if proc.returncode != 0:
+        msg = err.decode(errors="ignore")
+        print(f"yt-dlp info {vid} failed: {msg[-600:]}", flush=True)
+        if "Private video" in msg or "Video unavailable" in msg:
+            raise HTTPException(404, "This video is private or unavailable.")
+        if "confirm your age" in msg or "age-restricted" in msg:
+            raise HTTPException(400, "Age-restricted videos cannot be downloaded.")
+        if "members-only" in msg.lower() or "join this channel" in msg.lower():
+            raise HTTPException(400, "Members-only videos cannot be downloaded.")
+        raise HTTPException(502, "Could not read this video from YouTube. Please try again.")
+    return json.loads(out)
+
+
+@app.on_event("startup")
+async def _dl_cleanup_loop():
+    async def loop():
+        while True:
+            _dl_cleanup()
+            await asyncio.sleep(600)
+    asyncio.create_task(loop())
+
+
+@app.get("/dl/info")
+async def dl_info(url: str):
+    vid = video_id_of(url)
+    key = "dl:" + vid
+    hit = cache_get(key)
+    if hit:
+        return hit
+    j = await _ytdlp_json(vid)
+    if j.get("is_live") or j.get("live_status") in ("is_live", "is_upcoming"):
+        raise HTTPException(400, "Live streams can be downloaded after the stream has ended.")
+    if j.get("live_status") == "post_live":
+        raise HTTPException(400, "This stream just ended. YouTube is still processing it, please try again later.")
+    fmts = j.get("formats") or []
+    audio = max((f.get("filesize") or f.get("filesize_approx") or 0 for f in fmts if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")), default=0)
+    if not _has_video(j):
+        raise HTTPException(404, "This video is private, removed or not available for download.")
+    sizes: dict[int, list[tuple[bool, int]]] = {}
+    for f in fmts:
+        h = f.get("height")
+        if not h or f.get("vcodec") in (None, "none") or f.get("protocol") == "mhtml":
+            continue
+        # round up so e.g. a 1920x800 stream is offered as 1080p and _dl_args' "<=1080" still picks it
+        h = next((x for x in reversed(DL_HEIGHTS) if x >= min(f.get("width") or h, h)), DL_HEIGHTS[0])
+        size = f.get("filesize") or f.get("filesize_approx") or 0
+        sizes.setdefault(h, []).append((str(f.get("vcodec", "")).startswith("avc1"), size))
+    heights: dict[int, int] = {}
+    for h, lst in sizes.items():
+        # mirrors _dl_args: H.264 up to 1080p, otherwise the smallest (AV1/VP9) stream yt-dlp prefers
+        pool = [sz for avc, sz in lst if sz and (avc or h > 1080)] or [sz for _, sz in lst if sz]
+        heights[h] = (max(pool) if h <= 1080 else min(pool)) if pool else 0
+    dur = int(j.get("duration") or 0)
+    res = {
+        "vertical": (j.get("height") or 0) > (j.get("width") or 0),
+        "id": vid,
+        "title": j.get("title") or vid,
+        "channel": j.get("channel") or j.get("uploader") or "",
+        "duration": dur,
+        "thumbnail": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
+        "video": [{"height": h, "size": (s + audio) if s else 0} for h, s in sorted(heights.items(), reverse=True)],
+        "audio": [{"id": k, "size": int(dur * int(q[:-1]) * 125) if q else audio} for k, (_, q) in DL_AUDIO.items()],
+        "tooLong": dur > DL_MAX_SECONDS,
+    }
+    cache_set(key, res, 900)
+    return res
+
+
+def _dl_args(kind: str, quality: str, outdir: Path, vertical: bool = False) -> list[str]:
+    base = ["--no-warnings", "--no-playlist", "--newline", "--no-mtime", "--restrict-filenames",
+            "--progress-template", "download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s",
+            "-o", str(outdir / "media.%(ext)s")]
+    if kind == "audio":
+        ext, q = DL_AUDIO[quality]
+        if ext == "m4a":
+            return base + ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a"]
+        return base + ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", q, "--embed-thumbnail", "--embed-metadata"]
+    h, d = int(quality), "width" if vertical else "height"
+    if h <= 1080:
+        sel = f"bv*[{d}<={h}][vcodec^=avc1]+ba[ext=m4a]/bv*[{d}<={h}]+ba[ext=m4a]/bv*[{d}<={h}]+ba/b[{d}<={h}]/b"
+    else:
+        sel = f"bv*[{d}<={h}]+ba[ext=m4a]/bv*[{d}<={h}]+ba/b"
+    return base + ["-f", sel, "--merge-output-format", "mp4"]
+
+
+async def _dl_run(jid: str, vid: str, kind: str, quality: str, vertical: bool):
+    async with _dl_sem:
+        try:
+            await _dl_attempt(jid, vid, kind, quality, vertical, 1)
+        except Exception as e:  # never leave a job stuck "downloading"
+            print(f"yt-dlp download {vid} crashed: {e!r}", flush=True)
+            _dl_jobs[jid].update(state="error", error="Download failed. Please try again.", finished=time.time())
+            shutil.rmtree(DL_DIR / jid, ignore_errors=True)
+
+
+async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, vertical: bool, attempt: int):
+    job = _dl_jobs[jid]
+    outdir = DL_DIR / jid
+    job["state"] = "downloading"
+    job["percent"] = 0
+    proc = await asyncio.create_subprocess_exec(
+        YTDLP, *_dl_args(kind, quality, outdir, vertical), f"https://www.youtube.com/watch?v={vid}",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    streams, last_done, tail = 1 if kind == "audio" else 2, 0, deque(maxlen=20)
+    stream = 0
+    try:
+        async def read():
+            nonlocal stream, last_done
+            assert proc.stdout
+            async for raw in proc.stdout:
+                line = raw.decode(errors="ignore").strip()
+                tail.append(line)
+                if line.startswith("PROG "):
+                    parts = line.split()
+                    try:
+                        done, total = int(parts[1]), int(float(parts[2]))
+                    except (ValueError, IndexError):
+                        continue
+                    if done < last_done:
+                        stream = min(stream + 1, streams - 1)
+                    last_done = done
+                    if total:
+                        job["percent"] = round(min(99, (stream + done / total) / streams * 100), 1)
+                elif line.startswith(("[Merger]", "[ExtractAudio]", "[VideoConvertor]", "[EmbedThumbnail]")):
+                    job["state"] = "processing"
+                    job["percent"] = 99
+        await asyncio.wait_for(asyncio.gather(read(), proc.wait()), 3600)
+    except asyncio.TimeoutError:
+        proc.kill()
+        job.update(state="error", error="The download took too long. Please try a lower quality.")
+        return
+    files = [f for f in outdir.glob("media.*") if f.suffix not in (".part", ".ytdl", ".webp", ".jpg") and ".f" not in f.stem]
+    if (proc.returncode != 0 or not files) and attempt < 2:
+        print(f"yt-dlp download {vid} {kind} {quality} attempt {attempt} failed: {' | '.join(list(tail)[-3:])[-500:]}", flush=True)
+        await asyncio.sleep(2)
+        return await _dl_attempt(jid, vid, kind, quality, vertical, attempt + 1)
+    if proc.returncode != 0 or not files:
+        msg = " ".join(tail)
+        err = "YouTube refused this download. Please try again in a minute." if "403" in msg else "Download failed. Please try another quality."
+        job.update(state="error", error=err, finished=time.time())
+        shutil.rmtree(outdir, ignore_errors=True)
+        return
+    f = max(files, key=lambda p: p.stat().st_size)
+    f.chmod(0o644)
+    label = f"{quality}p" if kind == "video" else quality
+    safe = re.sub(r'[\\/:*?"<>|\r\n]+', " ", job["title"]).strip()[:120] or vid
+    job.update(state="done", percent=100, file=f.name, size=f.stat().st_size, filename=f"{safe} ({label}){f.suffix}", finished=time.time())
+
+
+@app.post("/dl/start")
+async def dl_start(request: Request):
+    body = await request.json()
+    vid = video_id_of(str(body.get("url", "")))
+    kind = body.get("kind")
+    quality = str(body.get("quality", ""))
+    if kind == "video" and not (quality.isdigit() and int(quality) in DL_HEIGHTS):
+        raise HTTPException(400, "Unknown video quality.")
+    if kind == "audio" and quality not in DL_AUDIO:
+        raise HTTPException(400, "Unknown audio format.")
+    if kind not in ("video", "audio"):
+        raise HTTPException(400, "Choose video or audio.")
+    ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
+    _dl_cleanup()
+    active = [j for j in _dl_jobs.values() if j["ip"] == ip and j["state"] in ("queued", "downloading", "processing")]
+    if len(active) >= 4:
+        raise HTTPException(429, "You already have 4 downloads running. Please wait for one to finish.")
+    info = await dl_info(vid)
+    if info["tooLong"]:
+        raise HTTPException(400, "Videos longer than 4 hours cannot be downloaded.")
+    jid = uuid.uuid4().hex
+    (DL_DIR / jid).mkdir(parents=True, exist_ok=True)
+    os.chmod(DL_DIR, 0o755)
+    os.chmod(DL_DIR / jid, 0o755)
+    _dl_jobs[jid] = {"ip": ip, "state": "queued", "percent": 0, "title": info["title"], "created": time.time()}
+    asyncio.create_task(_dl_run(jid, vid, kind, quality, info["vertical"]))
+    return {"job": jid}
+
+
+@app.get("/dl/status/{jid}")
+async def dl_status(jid: str):
+    _dl_cleanup()
+    j = _dl_jobs.get(jid)
+    if not j:
+        raise HTTPException(404, "This download has expired. Please start it again.")
+    return {k: j.get(k) for k in ("state", "percent", "error", "size", "filename")}
+
+
+@app.get("/dl/file/{jid}")
+async def dl_file(jid: str):
+    _dl_cleanup()
+    j = _dl_jobs.get(jid)
+    if not j or j.get("state") != "done" or not re.fullmatch(r"[0-9a-f]{32}", jid):
+        raise HTTPException(404, "This download has expired. Please start it again.")
+    name = j["filename"]
+    ascii_name = re.sub(r"[^\w .()-]+", "_", name.encode("ascii", "ignore").decode()).strip() or "download" + Path(j["file"]).suffix
+    return Response(headers={
+        "X-Accel-Redirect": f"/_ytdl/{jid}/{j['file']}",
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{url_quote(name)}",
+        "Content-Type": "application/octet-stream",
+    })

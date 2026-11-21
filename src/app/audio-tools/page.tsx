@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { tools } from "@/lib/tools";
 import { creatorTools } from "@/lib/creator/registry";
 
-export const metadata: Metadata = {
-  title: "Free Online Audio Tools - Convert, Cut, Join, Pitch, BPM, 8D",
-  description: "All audio tools in one place: converters, cutter, joiner, splitter, speed, pitch and BPM changer, voice changer, silence remover, 8D audio, tap BPM and more. Runs in your browser.",
-};
+export const metadata: Metadata = pageMetadata("/audio-tools");
 
 const groups: { title: string; slugs: string[] }[] = [
   { title: "🔄 Convert", slugs: ["on-hold-audio-converter"] },

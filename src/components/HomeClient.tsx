@@ -104,7 +104,12 @@ export default function HomeClient({ h1, faqs }: { h1: string; faqs: [string, st
     );
   }, []);
   const results = q.trim()
-    ? all.filter((t) => `${t.name} ${t.description} ${t.group}`.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
+    ? all
+        .filter((t) => {
+          const hay = `${t.name} ${t.description} ${t.group} ${t.href.replace(/[/-]/g, " ")}`.toLowerCase();
+          return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+        })
+        .slice(0, 8)
     : [];
   const half = Math.ceil(all.length / 2);
   const rowA = all.slice(0, half);

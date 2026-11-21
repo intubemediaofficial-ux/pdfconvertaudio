@@ -75,18 +75,17 @@ class YTError(Exception):
     pass
 
 
-_key_index = 0
+_key_blocked_until: dict[str, float] = {}
 
 
 async def yt(endpoint: str, **params):
-    global _key_index
+    """Try keys in order; a key that ran out of quota is skipped for an hour, so the primary key is used again after the daily reset."""
     if not YT_KEYS:
         raise HTTPException(503, "YouTube data is not configured yet.")
     last = None
-    start = _key_index
-    for attempt in range(len(YT_KEYS)):
-        idx = (start + attempt) % len(YT_KEYS)
-        key = YT_KEYS[idx]
+    for key in YT_KEYS:
+        if _key_blocked_until.get(key, 0) > time.time():
+            continue
         r = await client.get(f"{YT}/{endpoint}", params={**params, "key": key})
         if r.status_code == 200:
             return r.json()
@@ -97,7 +96,7 @@ async def yt(endpoint: str, **params):
         reason = (err.get("errors") or [{}])[0].get("reason", "")
         last = err.get("message") or r.text[:200]
         if reason in ("quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded"):
-            _key_index = idx + 1
+            _key_blocked_until[key] = time.time() + (60 if reason == "rateLimitExceeded" else 3600)
             continue
         if r.status_code == 404 or reason in ("videoNotFound", "playlistNotFound", "channelNotFound"):
             raise HTTPException(404, "Not found on YouTube. Check the link.")

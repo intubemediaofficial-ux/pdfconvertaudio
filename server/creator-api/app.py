@@ -1280,8 +1280,8 @@ def _dl_args(kind: str, quality: str, outdir: Path, vertical: bool = False) -> l
     if kind == "audio":
         ext, q = DL_AUDIO[quality]
         if ext == "m4a":
-            return base + ["-f", "ba[ext=m4a]/ba", "-x", "--audio-format", "m4a"]
-        return base + ["-f", "ba", "-x", "--audio-format", "mp3", "--audio-quality", q, "--embed-thumbnail", "--embed-metadata"]
+            return base + ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a"]
+        return base + ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", q, "--embed-thumbnail", "--embed-metadata"]
     h, d = int(quality), "width" if vertical else "height"
     if h <= 1080:
         sel = f"bv*[{d}<={h}][vcodec^=avc1]+ba[ext=m4a]/bv*[{d}<={h}]+ba[ext=m4a]/bv*[{d}<={h}]+ba/b[{d}<={h}]/b"

@@ -217,7 +217,7 @@ export const seoData: Record<string, SeoEntry> = {
     description: "Redact PDF documents online for free. Black out names, numbers and other sensitive information before sharing.",
     keywords: ["redact pdf", "black out pdf", "pdf redaction tool", "hide text in pdf", "redact pdf online free"],
     steps: ["Upload the PDF.", "Draw boxes over the content you want to hide.", "Download the redacted PDF."],
-    faqs: [["Can redacted text be recovered?", "Redacted areas are flattened into the page so the hidden content is not kept."], ["Is it private?", "Yes, the document never leaves your device."]],
+    faqs: [["Is the hidden text removed from the file?", "No. Areas are covered with an opaque box, but the original text stays in the PDF underneath, so do not rely on it to remove confidential data."], ["Is it private?", "Yes, the document never leaves your device."]],
   },
 
   // ---------------- Image ----------------

@@ -60,7 +60,7 @@ _hits: dict[str, deque] = defaultdict(deque)
 async def rate_limit(request: Request, call_next):
     ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
     path = request.url.path
-    if path.startswith(("/dl/status/", "/dl/file/")):  # cheap polling of a known job id
+    if path.startswith("/dl/status/"):  # cheap polling of a known job id
         return await call_next(request)
     limit = 20 if path.startswith("/ai/") else 6 if (path == "/sign/requests" and request.method == "POST") else 90
     bucket = _hits[ip + request.url.path[:4]]

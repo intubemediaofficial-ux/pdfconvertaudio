@@ -1257,31 +1257,65 @@ def _dl_find(vid: str, kind: str, quality: str) -> str | None:
     return None
 
 
-def _dl_new(vid: str, kind: str, quality: str, ip: str, info: dict, prefetch: bool = False) -> str:
+def _dl_new(vid: str, kind: str, quality: str, ip: str, title: str, prefetch: bool = False) -> str:
     jid = uuid.uuid4().hex
     (DL_DIR / jid).mkdir(parents=True, exist_ok=True)
     os.chmod(DL_DIR, 0o755)
     os.chmod(DL_DIR / jid, 0o755)
-    _dl_jobs[jid] = {"ip": ip, "state": "queued", "percent": 0, "title": info["title"], "created": time.time(),
+    _dl_jobs[jid] = {"ip": ip, "state": "queued", "percent": 0, "title": title, "created": time.time(),
                      "key": (vid, kind, quality), "prefetch": prefetch}
-    asyncio.create_task(_dl_run(jid, vid, kind, quality, info["vertical"]))
+    asyncio.create_task(_dl_run(jid, vid, kind, quality))
     return jid
 
 
-def _dl_prefetch(info: dict, tab: str, ip: str):
-    # Start preparing the most likely choice while the user is still looking at the options,
-    # so clicking it downloads straight away. Short videos only, and never when the server is busy.
-    if info["tooLong"] or info["duration"] > DL_PREFETCH_MAX_SECONDS or _dl_running() >= DL_WORKERS:
+DL_PREFETCH = {"video": ("video", "1080"), "audio": ("audio", "mp3-320")}
+
+
+def _dl_prefetch(vid: str, title: str, tab: str, ip: str):
+    # Start preparing the most likely choice (best quality up to 1080p, or MP3 320) the moment a link
+    # is pasted, so clicking it downloads straight away. Never when the server is busy.
+    if tab not in DL_PREFETCH or _dl_running() >= DL_WORKERS:
         return
-    if tab == "audio":
-        kind, quality = "audio", "mp3-320"
-    else:
-        hs = [v["height"] for v in info["video"] if v["height"] <= 1080]
-        if not hs:
-            return
-        kind, quality = "video", str(max(hs))
-    if not _dl_find(info["id"], kind, quality):
-        _dl_new(info["id"], kind, quality, ip, info, prefetch=True)
+    kind, quality = DL_PREFETCH[tab]
+    if not _dl_find(vid, kind, quality):
+        _dl_new(vid, kind, quality, ip, title, prefetch=True)
+
+
+def _dl_cancel_prefetch(vid: str):
+    """Drop unclaimed prefetch jobs, e.g. once the full info shows the video is long or can't be downloaded."""
+    for j in list(_dl_jobs.values()):
+        if j.get("prefetch") and j["key"][0] == vid and j["state"] != "error":
+            j.update(cancelled=True, state="error", error="Cancelled.", finished=time.time())
+            if j.get("proc") and j["proc"].returncode is None:
+                j["proc"].kill()
+
+
+def _dl_best_1080(info: dict) -> str | None:
+    hs = [v["height"] for v in info["video"] if v["height"] <= 1080]
+    return str(max(hs)) if hs else None
+
+
+@app.get("/dl/meta")
+async def dl_meta(url: str, request: Request, prefetch: str = ""):
+    """Title and thumbnail in well under a second (YouTube oEmbed), shown while the full info loads."""
+    vid = video_id_of(url)
+    key = "dlm:" + vid
+    res = cache_get(key)
+    if not res:
+        try:
+            r = await client.get("https://www.youtube.com/oembed", params={"format": "json", "url": f"https://www.youtube.com/watch?v={vid}"}, timeout=5)
+        except httpx.HTTPError:
+            raise HTTPException(502, "Could not reach YouTube.")
+        if r.status_code != 200:
+            raise HTTPException(404, "Preview not available.")
+        j = r.json()
+        res = {"id": vid, "title": j.get("title") or vid, "channel": j.get("author_name") or "",
+               "thumbnail": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"}
+        cache_set(key, res, 3600)
+    full = cache_get("dl:" + vid)
+    if prefetch in DL_PREFETCH and not (full and (full["tooLong"] or full["duration"] > DL_PREFETCH_MAX_SECONDS)):
+        _dl_prefetch(vid, res["title"], prefetch, _client_ip(request))
+    return res
 
 
 def _client_ip(request: Request) -> str:
@@ -1290,9 +1324,16 @@ def _client_ip(request: Request) -> str:
 
 @app.get("/dl/info")
 async def dl_info(url: str, request: Request, prefetch: str = ""):
-    res = await _dl_info(url)
-    if prefetch in ("video", "audio"):
-        _dl_prefetch(res, prefetch, _client_ip(request))
+    vid = video_id_of(url)
+    try:
+        res = await _dl_info(vid)
+    except HTTPException:
+        _dl_cancel_prefetch(vid)
+        raise
+    if res["tooLong"] or res["duration"] > DL_PREFETCH_MAX_SECONDS:
+        _dl_cancel_prefetch(vid)
+    elif prefetch in DL_PREFETCH:
+        _dl_prefetch(vid, res["title"], prefetch, _client_ip(request))
     return res
 
 
@@ -1341,42 +1382,44 @@ async def _dl_info(url: str) -> dict:
     return res
 
 
-def _dl_args(kind: str, quality: str, outdir: Path, vertical: bool = False) -> list[str]:
+def _dl_args(kind: str, quality: str, outdir: Path) -> list[str]:
     base = ["--no-warnings", "--no-playlist", "--newline", "--no-mtime", "--restrict-filenames",
+            "--match-filter", f"duration<={DL_MAX_SECONDS} & !is_live",
             "--progress-template", "download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s",
             "-o", str(outdir / "media.%(ext)s")]
     if kind == "audio":
         ext, q = DL_AUDIO[quality]
         if ext == "m4a":
             return base + ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a"]
-        return base + ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", q, "--embed-thumbnail", "--embed-metadata"]
-    h, d = int(quality), "width" if vertical else "height"
-    if h <= 1080:
-        sel = f"bv*[{d}<={h}][vcodec^=avc1]+ba[ext=m4a]/bv*[{d}<={h}]+ba[ext=m4a]/bv*[{d}<={h}]+ba/b[{d}<={h}]/b"
-    else:
-        sel = f"bv*[{d}<={h}]+ba[ext=m4a]/bv*[{d}<={h}]+ba/b"
-    return base + ["-f", sel, "--merge-output-format", "mp4"]
+        return base + ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", q,
+                       "--postprocessor-args", "ExtractAudio:-compression_level 9", "--embed-thumbnail", "--embed-metadata"]
+    # "res" is the smaller side, so this works for wide and vertical (Shorts) videos alike.
+    # H.264 is preferred where YouTube has it (up to 1080p); above that it only offers VP9/AV1.
+    return base + ["-f", "bv*+ba[ext=m4a]/bv*+ba/b", "-S", f"res:{int(quality)},vcodec:h264", "--merge-output-format", "mp4"]
 
 
-async def _dl_run(jid: str, vid: str, kind: str, quality: str, vertical: bool):
+async def _dl_run(jid: str, vid: str, kind: str, quality: str):
     async with _dl_sem:
         try:
-            await _dl_attempt(jid, vid, kind, quality, vertical, 1)
+            if not _dl_jobs[jid].get("cancelled"):
+                await _dl_attempt(jid, vid, kind, quality, 1)
         except Exception as e:  # never leave a job stuck "downloading"
             print(f"yt-dlp download {vid} crashed: {e!r}", flush=True)
             _dl_jobs[jid].update(state="error", error="Download failed. Please try again.", finished=time.time())
+        if _dl_jobs[jid]["state"] == "error":
             shutil.rmtree(DL_DIR / jid, ignore_errors=True)
 
 
-async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, vertical: bool, attempt: int):
+async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, attempt: int):
     job = _dl_jobs[jid]
     outdir = DL_DIR / jid
     job["state"] = "downloading"
     job["percent"] = 0
     proc = await asyncio.create_subprocess_exec(
-        YTDLP, *_dl_args(kind, quality, outdir, vertical), f"https://www.youtube.com/watch?v={vid}",
+        YTDLP, *_dl_args(kind, quality, outdir), f"https://www.youtube.com/watch?v={vid}",
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
+    job["proc"] = proc
     streams, last_done, tail = 1 if kind == "audio" else 2, 0, deque(maxlen=20)
     stream = 0
     try:
@@ -1405,22 +1448,41 @@ async def _dl_attempt(jid: str, vid: str, kind: str, quality: str, vertical: boo
         proc.kill()
         job.update(state="error", error="The download took too long. Please try a lower quality.")
         return
+    if job.get("cancelled"):
+        return
+    msg = " ".join(tail)
+    if "does not pass filter" in msg:
+        job.update(state="error", error="Videos longer than 4 hours and live streams cannot be downloaded.", finished=time.time())
+        return
     files = [f for f in outdir.glob("media.*") if f.suffix not in (".part", ".ytdl", ".webp", ".jpg") and ".f" not in f.stem]
     if (proc.returncode != 0 or not files) and attempt < 3:
         print(f"yt-dlp download {vid} {kind} {quality} attempt {attempt} failed: {' | '.join(list(tail)[-3:])[-500:]}", flush=True)
         await asyncio.sleep(1)
-        return await _dl_attempt(jid, vid, kind, quality, vertical, attempt + 1)
+        return await _dl_attempt(jid, vid, kind, quality, attempt + 1)
     if proc.returncode != 0 or not files:
-        msg = " ".join(tail)
         err = "YouTube refused this download. Please try again in a minute." if "403" in msg else "Download failed. Please try another quality."
         job.update(state="error", error=err, finished=time.time())
         shutil.rmtree(outdir, ignore_errors=True)
         return
     f = max(files, key=lambda p: p.stat().st_size)
     f.chmod(0o644)
-    label = f"{quality}p" if kind == "video" else quality
+    label = f"{await _dl_height(f) or quality}p" if kind == "video" else quality
     safe = re.sub(r'[\\/:*?"<>|\r\n]+', " ", job["title"]).strip()[:120] or vid
     job.update(state="done", percent=100, file=f.name, size=f.stat().st_size, filename=f"{safe} ({label}){f.suffix}", finished=time.time())
+
+
+async def _dl_height(f: Path) -> int | None:
+    """The quality bucket of the file actually downloaded (it can be lower than the one asked for)."""
+    proc = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(f),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    try:
+        w, h = (int(x) for x in out.decode().strip().split(",")[:2])
+    except ValueError:
+        return None
+    return next((x for x in reversed(DL_HEIGHTS) if x >= min(w, h)), DL_HEIGHTS[0])
 
 
 @app.post("/dl/start")
@@ -1437,17 +1499,21 @@ async def dl_start(request: Request):
         raise HTTPException(400, "Choose video or audio.")
     ip = _client_ip(request)
     _dl_cleanup()
+    info = cache_get("dl:" + vid)
+    if info and info["tooLong"]:
+        raise HTTPException(400, "Videos longer than 4 hours cannot be downloaded.")
     jid = _dl_find(vid, kind, quality)
+    if not jid and kind == "video" and info and quality == _dl_best_1080(info):
+        jid = _dl_find(vid, "video", "1080")  # the prefetched "best up to 1080p" is exactly this file
     if jid:
         _dl_jobs[jid].update(prefetch=False)
         return {"job": jid}
     active = [j for j in _dl_jobs.values() if j["ip"] == ip and not j.get("prefetch") and j["state"] in ("queued", "downloading", "processing")]
     if len(active) >= 4:
         raise HTTPException(429, "You already have 4 downloads running. Please wait for one to finish.")
-    info = await _dl_info(vid)
-    if info["tooLong"]:
-        raise HTTPException(400, "Videos longer than 4 hours cannot be downloaded.")
-    return {"job": _dl_new(vid, kind, quality, ip, info)}
+    # Don't wait for the slow full info: the download reads the video itself and enforces the limits.
+    title = (info or cache_get("dlm:" + vid) or {}).get("title") or vid
+    return {"job": _dl_new(vid, kind, quality, ip, title)}
 
 
 @app.get("/dl/status/{jid}")

@@ -104,12 +104,24 @@ export default function HomeClient({ h1, faqs }: { h1: string; faqs: [string, st
     );
   }, []);
   const results = q.trim()
-    ? all
-        .filter((t) => {
-          const hay = `${t.name} ${t.description} ${t.group} ${t.href.replace(/[/-]/g, " ")}`.toLowerCase();
-          return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
-        })
-        .slice(0, 8)
+    ? (() => {
+        const query = q.trim().toLowerCase();
+        const words = query.split(/\s+/);
+        const score = (t: Item) => {
+          const name = t.name.toLowerCase();
+          if (name.startsWith(query)) return 4;
+          if (name.includes(query)) return 3;
+          if (words.every((w) => name.includes(w))) return 2;
+          const hay = `${name} ${t.description} ${t.group} ${t.href.replace(/[/-]/g, " ")}`.toLowerCase();
+          return words.every((w) => hay.includes(w)) ? 1 : 0;
+        };
+        return all
+          .map((t) => ({ t, s: score(t) }))
+          .filter((x) => x.s > 0)
+          .sort((a, b) => b.s - a.s)
+          .slice(0, 8)
+          .map((x) => x.t);
+      })()
     : [];
   const half = Math.ceil(all.length / 2);
   const rowA = all.slice(0, half);

@@ -2,8 +2,10 @@ import Link from "next/link";
 import { SITE_NAME, SITE_URL, faqsFor, jsonLdString, seoFor, stepsFor } from "@/lib/seo";
 import { tools } from "@/lib/tools";
 import { creatorTools } from "@/lib/creator/registry";
+import { downloaderPage } from "@/lib/downloader-pages";
 
 function sectionOf(path: string): { name: string; href: string } {
+  if (downloaderPage(path)) return { name: "Creator Tools", href: "/creator-tools" };
   if (path.startsWith("/creator-tools/")) {
     const slug = path.split("/").pop();
     const t = creatorTools.find((c) => c.slug === slug);

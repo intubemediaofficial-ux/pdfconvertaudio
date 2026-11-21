@@ -26,7 +26,7 @@ function fmtSize(b: number) {
   return b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 1e6))} MB`;
 }
 
-function MediaDownloader({ initialTab = "video", placeholder = "Paste a YouTube video or Shorts link" }: { initialTab?: "video" | "audio"; placeholder?: string }) {
+export function MediaDownloader({ initialTab = "video", placeholder = "Paste a YouTube video or Shorts link" }: { initialTab?: "video" | "audio"; placeholder?: string }) {
   const s = useAsync<DlInfo>();
   const [tab, setTab] = useState<"video" | "audio">(initialTab);
   const [job, setJob] = useState<{ id: string; label: string } | null>(null);

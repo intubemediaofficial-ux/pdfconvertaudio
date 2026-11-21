@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getCreatorTool } from "@/lib/creator/registry";
 import { tools } from "@/lib/tools";
+import { downloaderPage } from "@/lib/downloader-pages";
 
 type Crumb = { href: string; label: string };
 
@@ -13,6 +14,8 @@ function trail(path: string): Crumb[] | null {
   if (p === "/") return null;
   if (p === "/creator-tools") return [{ href: "/creator-tools", label: "Creator Tools" }];
   if (p === "/audio-tools") return [{ href: "/audio-tools", label: "Audio Tools" }];
+  const dl = !p.startsWith("/creator-tools/") && downloaderPage(p);
+  if (dl) return [{ href: "/creator-tools", label: "Creator Tools" }, { href: p, label: dl.name }];
   if (p.startsWith("/creator-tools/")) {
     const t = getCreatorTool(p.split("/")[2]);
     if (!t) return null;

@@ -9,6 +9,7 @@ const nav = [
   { href: "/audio-tools", label: "Audio" },
   { href: "/remove-background", label: "Background" },
   { href: "/creator-tools", label: "Creator Tools" },
+  { href: "/youtube-downloader", label: "YT Downloader" },
   { href: "/sign-pdf", label: "e-Sign" },
 ];
 
@@ -40,6 +41,8 @@ const mobileGroups = [
     title: "YouTube",
     links: [
       { href: "/creator-tools", label: "All creator tools" },
+      { href: "/youtube-downloader", label: "YouTube Downloader" },
+      { href: "/creator-tools/youtube-to-mp3", label: "YouTube to MP3" },
       { href: "/creator-tools/youtube-tags-generator", label: "Tags Generator" },
       { href: "/creator-tools/youtube-title-generator", label: "Title Generator" },
       { href: "/creator-tools/youtube-channel-id-finder", label: "Channel ID Finder" },

@@ -15,8 +15,8 @@ export const seoData: Record<string, SeoEntry> = {
     kind: "hub",
     title: "Free PDF Tools, Audio Converter, Background Remover & YouTube Tools",
     description:
-      "75+ free online tools in one place: merge, split, compress and convert PDF, audio converter and cutter, AI background remover, YouTube tags, titles, channel ID finder and more. No sign-up.",
-    keywords: ["free online tools", "pdf tools", "pdf converter", "audio converter", "background remover", "youtube tools", "youtube tag generator", "channel id finder"],
+      "75+ free online tools in one place: merge, split, compress and convert PDF, audio converter and cutter, AI background remover, YouTube video downloader (4K MP4 & MP3), YouTube tags, titles, channel ID finder and more. No sign-up.",
+    keywords: ["free online tools", "pdf tools", "pdf converter", "audio converter", "background remover", "youtube downloader", "youtube video downloader", "youtube tools", "youtube tag generator", "channel id finder"],
   },
   "/audio-tools": {
     kind: "hub",
@@ -29,8 +29,55 @@ export const seoData: Record<string, SeoEntry> = {
     kind: "hub",
     title: "Free YouTube Creator Tools - Tags, Titles, Keywords, Channel Stats",
     description:
-      "Free YouTube tools for creators: tag generator and extractor, title and hashtag generator, keyword research, channel ID finder, thumbnail and banner downloader, comment picker, channel stats and more.",
+      "Free YouTube tools for creators: YouTube video downloader (4K, MP3), tag generator and extractor, title and hashtag generator, keyword research, channel ID finder, thumbnail and banner downloader, comment picker, channel stats and more.",
     keywords: ["youtube tools", "youtube creator tools", "youtube tag generator", "youtube seo tools", "free youtube tools", "youtube channel tools"],
+  },
+
+  "/youtube-downloader": {
+    kind: "youtube",
+    h1: "YouTube Downloader",
+    title: "YouTube Downloader - Download YouTube Videos in 4K, 1080p MP4 & MP3 Free",
+    description:
+      "Free YouTube downloader: paste a link and download YouTube videos as MP4 in 4K (2160p), 2K, 1080p, 720p or as MP3 audio. Fast, no sign-up, no app, works on phone and PC.",
+    keywords: ["youtube downloader", "youtube video downloader", "download youtube video", "yt downloader", "youtube video download", "youtube downloader online", "free youtube downloader", "youtube to mp4", "youtube to mp3", "youtube 4k downloader", "youtube video download hd", "save youtube video", "youtube download link", "y2mate alternative", "savefrom alternative"],
+    steps: ["Copy the YouTube video link from the app or browser.", "Paste it in the box above and press Get video.", "Pick MP4 quality (4K, 1080p, 720p…) or MP3 and the download starts."],
+    faqs: [
+      ["How do I download a YouTube video?", "Copy the video link, paste it above, press Get video and choose a quality. The file downloads straight to your phone or computer."],
+      ["Can I download YouTube videos in 4K?", "Yes. If the video was uploaded in 4K you get 2160p, plus 2K (1440p), 1080p, 720p and lower."],
+      ["Does it work on mobile?", "Yes, it works in any browser on Android, iPhone, Windows and Mac. No app needed."],
+      ["Is there a download limit?", "No daily limit. You can run several downloads at the same time."],
+      ["Can I download only the audio?", "Yes. Switch to the Audio tab for MP3 (320, 192 or 128 kbps) or M4A."],
+      ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use, and respect the creator's copyright."],
+    ],
+  },
+  "/youtube-to-mp4": {
+    kind: "youtube",
+    h1: "YouTube to MP4 Converter",
+    title: "YouTube to MP4 - Convert & Download YouTube Videos to MP4 HD Free",
+    description:
+      "Convert YouTube to MP4 online for free. Download YouTube videos as MP4 in 1080p Full HD, 720p HD, 4K and every other quality. No sign-up, no software.",
+    keywords: ["youtube to mp4", "youtube to mp4 converter", "youtube mp4 download", "convert youtube to mp4", "yt to mp4", "youtube video to mp4", "youtube to mp4 1080p", "youtube to mp4 hd"],
+    steps: ["Copy the YouTube link.", "Paste it and press Get video.", "Choose the MP4 quality and download."],
+    faqs: [
+      ["Which MP4 qualities can I get?", "Every quality the video has, from 144p up to 1080p Full HD, 2K and 4K."],
+      ["Will the MP4 play on my phone?", "Yes. Up to 1080p the file is standard H.264 MP4 that plays everywhere."],
+      ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use."],
+    ],
+  },
+  "/youtube-4k-downloader": {
+    kind: "youtube",
+    h1: "YouTube 4K Video Downloader",
+    title: "YouTube 4K Downloader - Download 2160p & 1440p Ultra HD Videos Free",
+    description:
+      "Download YouTube videos in 4K Ultra HD (2160p) and 2K (1440p) for free. Paste a link, pick 4K and save the MP4. No sign-up, no app.",
+    keywords: ["youtube 4k downloader", "4k video downloader", "download youtube video in 4k", "youtube 2160p download", "youtube 1440p download", "4k youtube to mp4", "ultra hd youtube downloader"],
+    steps: ["Copy the link of a video uploaded in 4K.", "Paste it and press Get video.", "Pick 2160p · 4K (or 1440p · 2K) and download."],
+    faqs: [
+      ["Why don't I see the 4K option?", "4K appears only when the video was uploaded in 4K. Lower qualities are always available."],
+      ["Which players play 4K files?", "4K and 2K files use AV1 or VP9 inside MP4 (YouTube has no H.264 above 1080p). VLC and modern phones, TVs and browsers play them."],
+      ["How big is a 4K file?", "The exact size is shown next to each quality before you download."],
+      ["Is it allowed to download YouTube videos?", "Only download videos you own or have permission to use."],
+    ],
   },
 
   // ---------------- PDF ----------------

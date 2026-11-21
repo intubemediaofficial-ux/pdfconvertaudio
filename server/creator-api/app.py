@@ -1167,7 +1167,7 @@ DL_MAX_SECONDS = 4 * 3600
 DL_HEIGHTS = (2160, 1440, 1080, 720, 480, 360, 240, 144)
 DL_AUDIO = {"mp3-320": ("mp3", "320K"), "mp3-192": ("mp3", "192K"), "mp3-128": ("mp3", "128K"), "m4a": ("m4a", None)}
 _dl_jobs: dict[str, dict] = {}
-_dl_sem = asyncio.Semaphore(int(os.environ.get("DL_CONCURRENCY", "3")))
+_dl_sem = asyncio.Semaphore(int(os.environ.get("DL_CONCURRENCY", "4")))
 _dl_info_sem = asyncio.Semaphore(int(os.environ.get("DL_INFO_CONCURRENCY", "4")))
 
 
@@ -1380,8 +1380,8 @@ async def dl_start(request: Request):
     ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "?")
     _dl_cleanup()
     active = [j for j in _dl_jobs.values() if j["ip"] == ip and j["state"] in ("queued", "downloading", "processing")]
-    if len(active) >= 2:
-        raise HTTPException(429, "You already have 2 downloads running. Please wait for them to finish.")
+    if len(active) >= 4:
+        raise HTTPException(429, "You already have 4 downloads running. Please wait for one to finish.")
     info = await dl_info(vid)
     if info["tooLong"]:
         raise HTTPException(400, "Videos longer than 4 hours cannot be downloaded.")

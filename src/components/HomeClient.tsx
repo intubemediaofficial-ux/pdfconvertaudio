@@ -214,6 +214,7 @@ export default function HomeClient({ h1, faqs }: { h1: string; faqs: [string, st
 
           <div className="reveal mt-8 flex flex-col min-[420px]:flex-row gap-3 justify-center">
             <a href="#pdf" className="btn-primary !text-base !px-8 !py-3.5">Explore all tools</a>
+            <Link href="/youtube-downloader" className="inline-flex items-center justify-center rounded-full glass-dark px-8 py-3.5 font-bold text-white">⬇ YouTube Downloader</Link>
             <Link href="/creator-tools" className="inline-flex items-center justify-center rounded-full glass-dark px-8 py-3.5 font-bold text-white">YouTube Creator Tools →</Link>
           </div>
 

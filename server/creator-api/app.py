@@ -1821,7 +1821,6 @@ SESSION_COOKIE = "bt_session"
 COOKIE_PATH = os.environ.get("AUTH_COOKIE_PATH", "/api/creator")
 SESSION_DAYS = 30
 OTP_MINUTES = 10
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
 
 
 def _db():

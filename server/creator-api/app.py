@@ -2048,10 +2048,11 @@ async def admin_stats(request: Request):
 async def admin_users(request: Request, q: str = "", page: int = 1):
     require_admin(request)
     page = max(1, page)
-    like = f"%{q.strip().lower()}%"
+    like = "%" + re.sub(r"([\\%_])", r"\\\1", q.strip().lower()) + "%"
+    where = "email LIKE ? ESCAPE '\\' OR lower(name) LIKE ? ESCAPE '\\'"
     with _db() as con:
-        total = con.execute("SELECT COUNT(*) FROM users WHERE email LIKE ? OR lower(name) LIKE ?", (like, like)).fetchone()[0]
-        rows = con.execute("SELECT * FROM users WHERE email LIKE ? OR lower(name) LIKE ? ORDER BY created DESC LIMIT 50 OFFSET ?",
+        total = con.execute(f"SELECT COUNT(*) FROM users WHERE {where}", (like, like)).fetchone()[0]
+        rows = con.execute(f"SELECT * FROM users WHERE {where} ORDER BY created DESC LIMIT 50 OFFSET ?",
                            (like, like, (page - 1) * 50)).fetchall()
     return {"total": total, "page": page, "items": [_public_user(r) for r in rows]}
 

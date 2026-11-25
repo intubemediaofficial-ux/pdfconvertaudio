@@ -67,7 +67,7 @@ export default function AccountPage() {
       </p>
       <button
         type="button"
-        onClick={async () => { await logout(); router.push("/"); }}
+        onClick={async () => { if (await logout()) router.push("/"); }}
         className="mt-6 w-full rounded-xl border-2 border-gray-200 py-3 font-semibold text-gray-700 hover:border-red-300 hover:text-red-600"
       >
         Log out

@@ -62,7 +62,7 @@ async def rate_limit(request: Request, call_next):
     path = request.url.path
     if path.startswith("/dl/status/"):  # cheap polling of a known job id
         return await call_next(request)
-    limit = 20 if path.startswith("/ai/") else 6 if (path == "/sign/requests" and request.method == "POST") else 12 if (path.startswith("/auth/") and request.method == "POST") else 90
+    limit = 20 if path.startswith("/ai/") else 6 if (path == "/sign/requests" and request.method == "POST") else 12 if (path.startswith("/auth/") and path != "/auth/logout" and request.method == "POST") else 90
     bucket = _hits[ip + ("auth-post" if limit == 12 else request.url.path[:4])]
     now = time.time()
     while bucket and bucket[0] < now - 60:

@@ -90,7 +90,7 @@ export default function AdminPage() {
         </div>
         <div className="ml-auto flex gap-2">
           <button type="button" onClick={load} className="rounded-xl border-2 border-gray-200 px-4 py-2 font-semibold text-gray-700 hover:border-purple-300">Refresh</button>
-          <button type="button" onClick={async () => { await logout(); router.push("/"); }} className="rounded-xl border-2 border-gray-200 px-4 py-2 font-semibold text-gray-700 hover:border-red-300 hover:text-red-600">Log out</button>
+          <button type="button" onClick={async () => { if (await logout()) router.push("/"); }} className="rounded-xl border-2 border-gray-200 px-4 py-2 font-semibold text-gray-700 hover:border-red-300 hover:text-red-600">Log out</button>
         </div>
       </div>
 

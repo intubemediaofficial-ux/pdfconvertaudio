@@ -44,8 +44,14 @@ export function useMe() {
 }
 
 export async function logout() {
-  await apiPost("/auth/logout", {}).catch(() => undefined);
+  try {
+    await apiPost("/auth/logout", {});
+  } catch (e) {
+    alert((e as Error).message);
+    return false;
+  }
   notifyAuthChange();
+  return true;
 }
 
 export function homeFor(u: User) {

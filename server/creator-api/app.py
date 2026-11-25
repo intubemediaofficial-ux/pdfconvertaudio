@@ -1963,14 +1963,21 @@ async def auth_me(request: Request):
     return {"user": _public_user(u) if u else None}
 
 
+_forgot_sent: dict[str, float] = {}
+
+
 @app.post("/auth/forgot")
 async def auth_forgot(body: dict):
     email = _valid_email(body.get("email"))
+    now = time.time()
+    if _forgot_sent.get(email, 0) > now - 60:
+        raise HTTPException(429, "Please wait a minute before asking for a new OTP.")
+    if len(_forgot_sent) > 5000:
+        for k in [k for k, t in _forgot_sent.items() if t < now - 60]:
+            del _forgot_sent[k]
+    _forgot_sent[email] = now
     with _db() as con:
         u = con.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-        prev = con.execute("SELECT sent FROM otps WHERE email = ?", (email,)).fetchone()
-        if prev and prev["sent"] > time.time() - 60:
-            raise HTTPException(429, "Please wait a minute before asking for a new OTP.")
         if not u or u["blocked"]:
             return {"ok": True}
         code = f"{secrets.randbelow(1_000_000):06d}"

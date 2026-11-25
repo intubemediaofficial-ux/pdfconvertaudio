@@ -59,6 +59,12 @@ export function homeFor(u: User) {
 }
 
 export function nextParam(fallback: string) {
-  const n = new URLSearchParams(window.location.search).get("next") || "";
-  return n.startsWith("/") && !n.startsWith("//") ? n : fallback;
+  const n = new URLSearchParams(window.location.search).get("next");
+  if (!n) return fallback;
+  try {
+    const u = new URL(n, window.location.origin);
+    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : fallback;
+  } catch {
+    return fallback;
+  }
 }

@@ -62,8 +62,8 @@ async def rate_limit(request: Request, call_next):
     path = request.url.path
     if path.startswith("/dl/status/"):  # cheap polling of a known job id
         return await call_next(request)
-    limit = 20 if path.startswith("/ai/") else 6 if (path == "/sign/requests" and request.method == "POST") else 90
-    bucket = _hits[ip + request.url.path[:4]]
+    limit = 20 if path.startswith("/ai/") else 6 if (path == "/sign/requests" and request.method == "POST") else 12 if (path.startswith("/auth/") and request.method == "POST") else 90
+    bucket = _hits[ip + ("auth-post" if limit == 12 else request.url.path[:4])]
     now = time.time()
     while bucket and bucket[0] < now - 60:
         bucket.popleft()
@@ -1163,6 +1163,7 @@ async def thumb_any(url: str):
     for im in images:
         _approve(im["url"])
     data = {"platform": _platform(host), "title": title, "images": images}
+    count_event("thumbnails")
     cache_set("thumb:" + url, data, 3600)
     return data
 
@@ -1228,10 +1229,10 @@ def save_meta(p: Path, meta: dict):
     tmp.replace(p / "meta.json")
 
 
-async def send_mail(to: list[dict], subject: str, body: str, reply_to: dict | None = None, attachments: list[dict] | None = None):
+async def send_mail(to: list[dict], subject: str, body: str, reply_to: dict | None = None, attachments: list[dict] | None = None, sender_name: str = "Bainsla Tools e-Sign"):
     if not BREVO_KEY or not BREVO_FROM:
         raise HTTPException(503, "Email is not configured on the server.")
-    payload = {"sender": {"name": "Bainsla Tools e-Sign", "email": BREVO_FROM}, "to": to, "subject": subject, "htmlContent": body}
+    payload = {"sender": {"name": sender_name, "email": BREVO_FROM}, "to": to, "subject": subject, "htmlContent": body}
     if reply_to:
         payload["replyTo"] = reply_to
     if attachments:
@@ -1245,14 +1246,14 @@ async def send_mail(to: list[dict], subject: str, body: str, reply_to: dict | No
     return r.json().get("messageId", "")
 
 
-def mail_html(title: str, lines: list[str], button: tuple[str, str] | None = None) -> str:
+def mail_html(title: str, lines: list[str], button: tuple[str, str] | None = None, footer: str = "Sent via tools.bainslamusic.com e-Sign") -> str:
     btn = (f'<p style="text-align:center;margin:28px 0"><a href="{button[1]}" style="background:#dc2626;color:#fff;padding:14px 30px;'
            f'border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px">{button[0]}</a></p>') if button else ""
     body = "".join(f'<p style="color:#374151;font-size:15px;line-height:1.6">{l}</p>' for l in lines)
     return (f'<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">'
             f'<h2 style="color:#111827">{title}</h2>{body}{btn}'
             f'<hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0"/>'
-            f'<p style="color:#9ca3af;font-size:12px;text-align:center">Sent via tools.bainslamusic.com e-Sign</p></div>')
+            f'<p style="color:#9ca3af;font-size:12px;text-align:center">{footer}</p></div>')
 
 
 def clean(s: str, n=120) -> str:
@@ -1800,8 +1801,264 @@ async def dl_file(jid: str):
         raise HTTPException(404, "This download has expired. Please start it again.")
     name = j["filename"]
     ascii_name = re.sub(r"[^\w .()-]+", "_", name.encode("ascii", "ignore").decode()).strip() or "download" + Path(j["file"]).suffix
+    count_event("downloads")
     return Response(headers={
         "X-Accel-Redirect": f"/_ytdl/{jid}/{j['file']}",
         "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{url_quote(name)}",
         "Content-Type": "application/octet-stream",
     })
+
+
+# ---------------------------------------------------------------- accounts: users, admins, email OTP password reset
+# SQLite in DATA_DIR/auth.db. Admins come from ADMIN_EMAILS; they set their password with the email OTP flow.
+
+import hashlib
+import hmac
+import sqlite3
+
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "shivlalbainslaofficial@gmail.com,ajeetbainslaofficial@gmail.com").split(",") if e.strip()}
+SESSION_COOKIE = "bt_session"
+COOKIE_PATH = os.environ.get("AUTH_COOKIE_PATH", "/api/creator")
+SESSION_DAYS = 30
+OTP_MINUTES = 10
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
+
+
+def _db():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(DATA_DIR / "auth.db", timeout=10)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def _auth_init():
+    with _db() as con:
+        con.executescript("""
+        CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '',
+            pw TEXT, blocked INTEGER NOT NULL DEFAULT 0, created REAL NOT NULL, last_login REAL);
+        CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, expires REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS otps (email TEXT PRIMARY KEY, code TEXT NOT NULL, expires REAL NOT NULL, tries INTEGER NOT NULL DEFAULT 0, sent REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0);
+        """)
+        for e in ADMIN_EMAILS:
+            con.execute("INSERT OR IGNORE INTO users (email, name, created) VALUES (?, 'Admin', ?)", (e, time.time()))
+
+
+_auth_init()
+
+
+def count_event(name: str):
+    try:
+        with _db() as con:
+            con.execute("INSERT INTO counters (name, value) VALUES (?, 1) ON CONFLICT(name) DO UPDATE SET value = value + 1", (name,))
+    except sqlite3.Error:
+        pass
+
+
+def _hash_pw(pw: str) -> str:
+    salt = secrets.token_bytes(16)
+    h = hashlib.scrypt(pw.encode(), salt=salt, n=2**14, r=8, p=1)
+    return f"scrypt${salt.hex()}${h.hex()}"
+
+
+def _check_pw(pw: str, stored: str | None) -> bool:
+    try:
+        _, salt, h = (stored or "").split("$")
+        return hmac.compare_digest(hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt), n=2**14, r=8, p=1).hex(), h)
+    except ValueError:
+        return False
+
+
+def _otp_hash(email: str, code: str) -> str:
+    return hashlib.sha256(f"{email}:{code}".encode()).hexdigest()
+
+
+def _public_user(u) -> dict:
+    return {"id": u["id"], "email": u["email"], "name": u["name"], "role": "admin" if u["email"] in ADMIN_EMAILS else "user",
+            "blocked": bool(u["blocked"]), "created": u["created"], "lastLogin": u["last_login"], "hasPassword": bool(u["pw"])}
+
+
+def _valid_pw(pw) -> str:
+    if not isinstance(pw, str) or len(pw) < 8 or len(pw) > 200:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    return pw
+
+
+def _valid_email(email) -> str:
+    email = (email or "").strip().lower() if isinstance(email, str) else ""
+    if not EMAIL_RE.match(email) or len(email) > 200:
+        raise HTTPException(400, "Please enter a valid email address.")
+    return email
+
+
+def _login_response(con, user_id: int, data: dict) -> JSONResponse:
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    con.execute("DELETE FROM sessions WHERE expires < ?", (now,))
+    con.execute("INSERT INTO sessions (token, user_id, expires) VALUES (?, ?, ?)", (hashlib.sha256(token.encode()).hexdigest(), user_id, now + SESSION_DAYS * 86400))
+    con.execute("UPDATE users SET last_login = ? WHERE id = ?", (now, user_id))
+    res = JSONResponse(data)
+    res.set_cookie(SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400, httponly=True, secure=True, samesite="lax", path=COOKIE_PATH)
+    return res
+
+
+def current_user(request: Request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    with _db() as con:
+        u = con.execute("SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ?",
+                        (hashlib.sha256(token.encode()).hexdigest(), time.time())).fetchone()
+    return u if u and not u["blocked"] else None
+
+
+def require_admin(request: Request):
+    u = current_user(request)
+    if not u:
+        raise HTTPException(401, "Please log in.")
+    if u["email"] not in ADMIN_EMAILS:
+        raise HTTPException(403, "Admins only.")
+    return u
+
+
+@app.post("/auth/signup")
+async def auth_signup(body: dict):
+    email, pw = _valid_email(body.get("email")), _valid_pw(body.get("password"))
+    name = str(body.get("name") or "").strip()[:80]
+    with _db() as con:
+        if con.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
+            raise HTTPException(409, "An account with this email already exists. Please log in or reset your password.")
+        cur = con.execute("INSERT INTO users (email, name, pw, created) VALUES (?, ?, ?, ?)", (email, name, _hash_pw(pw), time.time()))
+        u = con.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return _login_response(con, u["id"], {"user": _public_user(u)})
+
+
+@app.post("/auth/login")
+async def auth_login(body: dict):
+    email, pw = _valid_email(body.get("email")), str(body.get("password") or "")
+    with _db() as con:
+        u = con.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if u and not u["pw"]:
+            raise HTTPException(400, "No password is set for this account yet. Use “Forgot password” to get an OTP on your email.")
+        if not u or not _check_pw(pw, u["pw"]):
+            raise HTTPException(401, "Wrong email or password.")
+        if u["blocked"]:
+            raise HTTPException(403, "This account has been blocked. Please contact support.")
+        return _login_response(con, u["id"], {"user": _public_user(u)})
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with _db() as con:
+            con.execute("DELETE FROM sessions WHERE token = ?", (hashlib.sha256(token.encode()).hexdigest(),))
+    res = JSONResponse({"ok": True})
+    res.delete_cookie(SESSION_COOKIE, path=COOKIE_PATH, secure=True, httponly=True, samesite="lax")
+    return res
+
+
+@app.get("/auth/me")
+async def auth_me(request: Request):
+    u = current_user(request)
+    return {"user": _public_user(u) if u else None}
+
+
+@app.post("/auth/forgot")
+async def auth_forgot(body: dict):
+    email = _valid_email(body.get("email"))
+    with _db() as con:
+        u = con.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        prev = con.execute("SELECT sent FROM otps WHERE email = ?", (email,)).fetchone()
+        if prev and prev["sent"] > time.time() - 60:
+            raise HTTPException(429, "Please wait a minute before asking for a new OTP.")
+        if not u or u["blocked"]:
+            return {"ok": True}
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        now = time.time()
+        con.execute("INSERT OR REPLACE INTO otps (email, code, expires, tries, sent) VALUES (?, ?, ?, 0, ?)", (email, _otp_hash(email, code), now + OTP_MINUTES * 60, now))
+    await send_mail([{"email": email}], f"{code} is your Bainsla Tools password reset code",
+                    mail_html("Reset your password", [f"Your one-time code is <b style='font-size:26px;letter-spacing:4px'>{code}</b>",
+                                                      f"It expires in {OTP_MINUTES} minutes. If you didn't ask for this, you can ignore this email."],
+                              footer="Sent by tools.bainslamusic.com"), sender_name="Bainsla Tools")
+    return {"ok": True}
+
+
+@app.post("/auth/reset")
+async def auth_reset(body: dict):
+    email, pw = _valid_email(body.get("email")), _valid_pw(body.get("password"))
+    code = re.sub(r"\D", "", str(body.get("otp") or ""))
+    with _db() as con:
+        o = con.execute("SELECT * FROM otps WHERE email = ?", (email,)).fetchone()
+        if not o or o["expires"] < time.time() or o["tries"] >= 5:
+            raise HTTPException(400, "This OTP has expired. Please ask for a new one.")
+        if not hmac.compare_digest(o["code"], _otp_hash(email, code)):
+            con.execute("UPDATE otps SET tries = tries + 1 WHERE email = ?", (email,))
+            raise HTTPException(400, "Wrong OTP. Please check the code in your email.")
+        u = con.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if not u or u["blocked"]:
+            raise HTTPException(400, "This OTP has expired. Please ask for a new one.")
+        con.execute("DELETE FROM otps WHERE email = ?", (email,))
+        con.execute("DELETE FROM sessions WHERE user_id = ?", (u["id"],))
+        con.execute("UPDATE users SET pw = ? WHERE id = ?", (_hash_pw(pw), u["id"]))
+        u = con.execute("SELECT * FROM users WHERE id = ?", (u["id"],)).fetchone()
+        return _login_response(con, u["id"], {"user": _public_user(u)})
+
+
+@app.post("/auth/change-password")
+async def auth_change_password(request: Request, body: dict):
+    u = current_user(request)
+    if not u:
+        raise HTTPException(401, "Please log in.")
+    if not _check_pw(str(body.get("current") or ""), u["pw"]):
+        raise HTTPException(400, "Current password is wrong.")
+    pw = _valid_pw(body.get("password"))
+    with _db() as con:
+        con.execute("UPDATE users SET pw = ? WHERE id = ?", (_hash_pw(pw), u["id"]))
+        con.execute("DELETE FROM sessions WHERE user_id = ?", (u["id"],))
+        return _login_response(con, u["id"], {"ok": True})
+
+
+@app.get("/admin/stats")
+async def admin_stats(request: Request):
+    require_admin(request)
+    week = time.time() - 7 * 86400
+    with _db() as con:
+        users = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        new7 = con.execute("SELECT COUNT(*) FROM users WHERE created > ?", (week,)).fetchone()[0]
+        active7 = con.execute("SELECT COUNT(*) FROM users WHERE last_login > ?", (week,)).fetchone()[0]
+        blocked = con.execute("SELECT COUNT(*) FROM users WHERE blocked = 1").fetchone()[0]
+        counters = {r["name"]: r["value"] for r in con.execute("SELECT * FROM counters")}
+    sign_total = sum(1 for p in SIGN_DIR.iterdir() if p.is_dir()) if SIGN_DIR.exists() else 0
+    return {"users": users, "newUsers7d": new7, "activeUsers7d": active7, "blocked": blocked, "signRequests": sign_total,
+            "downloads": counters.get("downloads", 0), "thumbnails": counters.get("thumbnails", 0),
+            "activeDownloads": sum(1 for j in _dl_jobs.values() if j.get("state") in ("queued", "downloading"))}
+
+
+@app.get("/admin/users")
+async def admin_users(request: Request, q: str = "", page: int = 1):
+    require_admin(request)
+    page = max(1, page)
+    like = f"%{q.strip().lower()}%"
+    with _db() as con:
+        total = con.execute("SELECT COUNT(*) FROM users WHERE email LIKE ? OR lower(name) LIKE ?", (like, like)).fetchone()[0]
+        rows = con.execute("SELECT * FROM users WHERE email LIKE ? OR lower(name) LIKE ? ORDER BY created DESC LIMIT 50 OFFSET ?",
+                           (like, like, (page - 1) * 50)).fetchall()
+    return {"total": total, "page": page, "items": [_public_user(r) for r in rows]}
+
+
+@app.post("/admin/users/{uid}/block")
+async def admin_block(request: Request, uid: int, body: dict):
+    require_admin(request)
+    with _db() as con:
+        u = con.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+        if not u:
+            raise HTTPException(404, "User not found.")
+        if u["email"] in ADMIN_EMAILS:
+            raise HTTPException(400, "Admins can't be blocked.")
+        blocked = 1 if body.get("blocked") else 0
+        con.execute("UPDATE users SET blocked = ? WHERE id = ?", (blocked, uid))
+        if blocked:
+            con.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
+        u = con.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+    return {"user": _public_user(u)}

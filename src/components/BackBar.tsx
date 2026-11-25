@@ -25,6 +25,8 @@ function trail(path: string): Crumb[] | null {
   const tool = tools.find((t) => t.href === p);
   if (tool?.category === "Audio Converter") return [{ href: "/audio-tools", label: "Audio Tools" }, { href: p, label: tool.name }];
   if (tool) return [{ href: "/#all-tools", label: "All Tools" }, { href: p, label: tool.name }];
+  const auth: Record<string, string> = { "/login": "Log in", "/signup": "Create account", "/forgot-password": "Reset password", "/account": "My account", "/admin": "Admin panel" };
+  if (auth[p]) return [{ href: p, label: auth[p] }];
   if (p === "/sign-request") return [{ href: "/sign-pdf", label: "Sign PDF" }, { href: p, label: "Sign Document" }];
   return null;
 }

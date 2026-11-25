@@ -1991,9 +1991,12 @@ async def auth_reset(body: dict):
         o = con.execute("SELECT * FROM otps WHERE email = ?", (email,)).fetchone()
         if not o or o["expires"] < time.time() or o["tries"] >= 5:
             raise HTTPException(400, "This OTP has expired. Please ask for a new one.")
-        if not hmac.compare_digest(o["code"], _otp_hash(email, code)):
+        wrong = not hmac.compare_digest(o["code"], _otp_hash(email, code))
+        if wrong:
             con.execute("UPDATE otps SET tries = tries + 1 WHERE email = ?", (email,))
-            raise HTTPException(400, "Wrong OTP. Please check the code in your email.")
+    if wrong:
+        raise HTTPException(400, "Wrong OTP. Please check the code in your email.")
+    with _db() as con:
         u = con.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
         if not u or u["blocked"]:
             raise HTTPException(400, "This OTP has expired. Please ask for a new one.")

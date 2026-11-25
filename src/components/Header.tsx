@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useMe } from "@/lib/auth";
 
 const nav = [
   { href: "/#pdf", label: "PDF Tools" },
@@ -54,6 +55,8 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+  const me = useMe();
+  const account = me ? { href: me.role === "admin" ? "/admin" : "/account", label: me.role === "admin" ? "Admin" : "My account" } : { href: "/login", label: "Log in" };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -82,11 +85,18 @@ export default function Header() {
                 </Link>
               );
             })}
+            <Link href={account.href} className={`ml-2 px-3.5 py-2 rounded-full border border-white/20 transition hover:text-white hover:bg-white/10 ${pathname.startsWith(account.href) ? "text-white bg-white/10" : ""}`}>
+              {me === undefined ? "Account" : account.label}
+            </Link>
             <Link href="/#pdf" className="ml-3 btn-primary !text-sm !px-5 !py-2.5">
               All Tools
             </Link>
           </div>
 
+          <div className="lg:hidden flex items-center gap-1">
+          <Link href={account.href} className="whitespace-nowrap px-3 py-1.5 rounded-full border border-white/20 text-sm font-semibold text-white/85 hover:bg-white/10" onClick={() => setMenuOpen(false)}>
+            {me ? (me.role === "admin" ? "Admin" : "Account") : "Log in"}
+          </Link>
           <button
             className="lg:hidden p-2 text-white rounded-lg hover:bg-white/10"
             onClick={() => setMenuOpen(!menuOpen)}
@@ -101,6 +111,7 @@ export default function Header() {
               )}
             </svg>
           </button>
+          </div>
         </div>
 
         {menuOpen && (

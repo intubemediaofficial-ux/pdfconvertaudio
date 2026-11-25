@@ -63,7 +63,7 @@ export function nextParam(fallback: string) {
   if (!n) return fallback;
   try {
     const u = new URL(n, window.location.origin);
-    return u.origin === window.location.origin ? u.pathname + u.search + u.hash : fallback;
+    return u.origin === window.location.origin && !u.pathname.startsWith("//") ? u.pathname + u.search + u.hash : fallback;
   } catch {
     return fallback;
   }
